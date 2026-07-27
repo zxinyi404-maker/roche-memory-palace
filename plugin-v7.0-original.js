@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v7.1.0
-// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联
+// Roche 记忆宫殿插件 v7.0.0
+// 完整功能 + 舒适排版 + 独立页面
 
 (function() {
   'use strict';
@@ -157,166 +157,12 @@
     return new Date(timestamp).toLocaleDateString('zh-CN');
   }
 
-  // ============ 向量相似度计算（简化版）============
-
-  function calculateVectorSimilarity(text1, text2) {
-    // 简化的余弦相似度计算
-    const words1 = text1.toLowerCase().match(/[一-龥a-z]+/g) || [];
-    const words2 = text2.toLowerCase().match(/[一-龥a-z]+/g) || [];
-
-    const set1 = new Set(words1);
-    const set2 = new Set(words2);
-    const intersection = new Set([...set1].filter(x => set2.has(x)));
-
-    if (set1.size === 0 || set2.size === 0) return 0;
-    return intersection.size / Math.sqrt(set1.size * set2.size);
-  }
-
-  // ============ BM25 关键词搜索 ============
-
-  function calculateBM25(query, text) {
-    const queryWords = query.toLowerCase().match(/[一-龥a-z]+/g) || [];
-    const textWords = text.toLowerCase().match(/[一-龥a-z]+/g) || [];
-
-    let score = 0;
-    queryWords.forEach(qw => {
-      const freq = textWords.filter(tw => tw === qw).length;
-      if (freq > 0) {
-        score += Math.log(1 + freq);
-      }
-    });
-
-    return score;
-  }
-
-  // ============ 混合搜索（85%向量 + 15%关键词）============
-
-  function hybridSearch(query, memories) {
-    if (!query) return memories;
-
-    const results = memories.map(mem => {
-      const vectorScore = calculateVectorSimilarity(query, mem.text);
-      const bm25Score = calculateBM25(query, mem.text);
-
-      // 归一化 BM25
-      const maxBM25 = Math.max(...memories.map(m => calculateBM25(query, m.text)), 1);
-      const normalizedBM25 = bm25Score / maxBM25;
-
-      // 混合得分：85% 向量 + 15% BM25
-      const finalScore = vectorScore * 0.85 + normalizedBM25 * 0.15;
-
-      return { memory: mem, score: finalScore };
-    });
-
-    return results
-      .filter(r => r.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map(r => r.memory);
-  }
-
-  // ============ 记忆关联（扩散激活）============
-
-  function findRelatedMemories(targetMemory, allMemories, personality = 'emotional') {
-    const weights = {
-      emotional: { emotion: 1.0, person: 0.6, time: 0.3 },
-      narrative: { time: 1.0, person: 0.8, emotion: 0.5 },
-      analytical: { cause: 1.0, time: 0.4, emotion: 0.3 }
-    }[personality] || { emotion: 1.0, person: 0.6, time: 0.3 };
-
-    const related = allMemories
-      .filter(m => m.id !== targetMemory.id)
-      .map(mem => {
-        let score = 0;
-
-        // 情绪关联
-        if (mem.emotion === targetMemory.emotion) {
-          score += weights.emotion || 0;
-        }
-
-        // 时间关联（7天内）
-        const timeDiff = Math.abs(mem.timestamp - targetMemory.timestamp) / (1000 * 60 * 60 * 24);
-        if (timeDiff < 7) {
-          score += (weights.time || 0) * (1 - timeDiff / 7);
-        }
-
-        // 文本相似度
-        const similarity = calculateVectorSimilarity(targetMemory.text, mem.text);
-        score += similarity * 0.5;
-
-        return { memory: mem, score };
-      })
-      .filter(r => r.score > 0.3)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-
-    return related.map(r => r.memory);
-  }
-
-  // ============ 情绪启动（重排记忆）============
-
-  function applyEmotionPriming(memories, currentEmotion) {
-    if (currentEmotion === 'neutral') return memories;
-
-    return memories.map(mem => {
-      const boosted = mem.emotion === currentEmotion;
-      return {
-        ...mem,
-        _emotionBoosted: boosted,
-        _sortScore: boosted ? 1.3 : 1.0
-      };
-    }).sort((a, b) => {
-      const scoreA = calculateRetention(a) * a._sortScore;
-      const scoreB = calculateRetention(b) * b._sortScore;
-      return scoreB - scoreA;
-    });
-  }
-
-  // ============ 反刍检查 ============
-
-  function checkRumination(memories, ruminationTendency = 0.3) {
-    const atticMemories = memories.filter(m => m.room === 'attic');
-    if (atticMemories.length === 0) return null;
-
-    const probability = ruminationTendency * 0.2;
-    if (Math.random() < probability) {
-      return atticMemories[Math.floor(Math.random() * atticMemories.length)];
-    }
-
-    return null;
-  }
-
-  // ============ 自动遗忘（客厅满了后迁移）============
-
-  function autoForget(memories) {
-    const livingRoomMemories = memories.filter(m => m.room === 'livingRoom');
-
-    if (livingRoomMemories.length > 200) {
-      // 按重要性和保持率排序
-      livingRoomMemories.sort((a, b) => {
-        const scoreA = a.importance * calculateRetention(a);
-        const scoreB = b.importance * calculateRetention(b);
-        return scoreA - scoreB;
-      });
-
-      // 重要的晋升到卧室，不重要的沉入阁楼
-      livingRoomMemories.slice(0, livingRoomMemories.length - 200).forEach(mem => {
-        if (mem.importance >= 7) {
-          mem.room = 'bedroom';
-        } else {
-          mem.room = 'attic';
-        }
-      });
-    }
-
-    return memories;
-  }
-
   // ============ 主插件 ============
 
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '7.1.0',
+    version: '7.0.0',
     apps: [
       {
         id: 'memory-palace-home',
@@ -403,8 +249,11 @@
 
           function searchMemories(query) {
             if (!query) return memories;
-            // 使用混合搜索（85%向量 + 15%BM25）
-            return hybridSearch(query, memories);
+            const lowerQuery = query.toLowerCase();
+            return memories.filter(m =>
+              m.text.toLowerCase().includes(lowerQuery) ||
+              EMOTION_TYPES[m.emotion]?.name.includes(query)
+            );
           }
 
 // ============ 全局样式 ============
@@ -650,54 +499,34 @@
                   padding: 16px 24px;
                   background: white;
                   border-bottom: 1px solid rgba(184, 165, 161, 0.1);
+                  display: flex;
+                  gap: 12px;
+                  overflow-x: auto;
                   flex-shrink: 0;
                 ">
-                  <div style="display: flex; gap: 12px; overflow-x: auto; margin-bottom: 16px;">
-                    <div class="mp-btn" style="
-                      background: rgba(232, 180, 184, 0.1);
-                      color: #8B7E77;
-                      border: 1px solid rgba(232, 180, 184, 0.3);
-                      white-space: nowrap;
-                    " id="viewAllBtn">
-                      📋 查看全部记忆
-                    </div>
-                    <div class="mp-btn" style="
-                      background: rgba(159, 184, 173, 0.1);
-                      color: #8B7E77;
-                      border: 1px solid rgba(159, 184, 173, 0.3);
-                      white-space: nowrap;
-                    " id="viewEventsBtn">
-                      📦 查看事件盒
-                    </div>
+                  <div class="mp-btn" style="
+                    background: rgba(232, 180, 184, 0.1);
+                    color: #8B7E77;
+                    border: 1px solid rgba(232, 180, 184, 0.3);
+                    white-space: nowrap;
+                  " id="viewAllBtn">
+                    📋 查看全部记忆
                   </div>
-
-                  <!-- 搜索框 -->
-                  <div style="position: relative;">
-                    <input
-                      type="text"
-                      id="quickSearchInput"
-                      placeholder="搜索记忆（关键词、标签、情绪...）"
-                      style="
-                        width: 100%;
-                        padding: 12px 44px 12px 16px;
-                        border: 2px solid rgba(184, 161, 193, 0.2);
-                        border-radius: 12px;
-                        font-size: 14px;
-                        color: #8B7E77;
-                        background: white;
-                        outline: none;
-                        transition: all 0.2s;
-                      "
-                    />
-                    <div style="
-                      position: absolute;
-                      right: 14px;
-                      top: 50%;
-                      transform: translateY(-50%);
-                      font-size: 18px;
-                      color: #B8A1C9;
-                      cursor: pointer;
-                    " id="quickSearchIcon">🔍</div>
+                  <div class="mp-btn" style="
+                    background: rgba(159, 184, 173, 0.1);
+                    color: #8B7E77;
+                    border: 1px solid rgba(159, 184, 173, 0.3);
+                    white-space: nowrap;
+                  " id="viewEventsBtn">
+                    📦 查看事件盒
+                  </div>
+                  <div class="mp-btn" style="
+                    background: rgba(184, 161, 193, 0.1);
+                    color: #8B7E77;
+                    border: 1px solid rgba(184, 161, 193, 0.3);
+                    white-space: nowrap;
+                  " id="searchBtn">
+                    🔍 搜索记忆
                   </div>
                 </div>
 
@@ -819,27 +648,9 @@
               render();
             };
 
-            // 快速搜索功能
-            const quickSearchInput = container.querySelector('#quickSearchInput');
-            const quickSearchIcon = container.querySelector('#quickSearchIcon');
-
-            quickSearchInput.addEventListener('keypress', (e) => {
-              if (e.key === 'Enter' && quickSearchInput.value.trim()) {
-                searchQuery = quickSearchInput.value.trim();
-                currentView = 'search';
-                render();
-              }
-            });
-
-            quickSearchIcon.onclick = () => {
-              if (quickSearchInput.value.trim()) {
-                searchQuery = quickSearchInput.value.trim();
-                currentView = 'search';
-                render();
-              } else {
-                currentView = 'search';
-                render();
-              }
+            container.querySelector('#searchBtn').onclick = () => {
+              currentView = 'search';
+              render();
             };
 
             container.querySelector('#curveCard').onclick = () => {
@@ -994,46 +805,6 @@
                                     💪 ${(retention * 100).toFixed(0)}% · 复习${mem.reviewCount}次
                                   </div>
                                 </div>
-
-                                <!-- 关联记忆 -->
-                                ${(() => {
-                                  const relatedMems = findRelatedMemories(mem, memories);
-                                  if (relatedMems.length === 0) return '';
-                                  return `
-                                    <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(184, 165, 161, 0.1);">
-                                      <div style="font-size: 12px; color: #A89A94; margin-bottom: 10px;">
-                                        🔗 相关记忆 (${relatedMems.length})
-                                      </div>
-                                      <div style="display: flex; flex-direction: column; gap: 8px;">
-                                        ${relatedMems.slice(0, 3).map(rel => {
-                                          const relRoom = SEVEN_ROOMS[rel.room];
-                                          return `
-                                            <div style="
-                                              padding: 10px;
-                                              background: rgba(245, 240, 235, 0.6);
-                                              border-radius: 8px;
-                                              font-size: 13px;
-                                              color: #8B7E77;
-                                              line-height: 1.4;
-                                              cursor: pointer;
-                                              transition: all 0.2s;
-                                            " data-related-id="${rel.id}" class="related-memory">
-                                              <span style="
-                                                padding: 2px 6px;
-                                                background: ${relRoom.color};
-                                                color: white;
-                                                border-radius: 4px;
-                                                font-size: 10px;
-                                                margin-right: 6px;
-                                              ">${relRoom.icon}</span>
-                                              ${rel.text.slice(0, 60)}${rel.text.length > 60 ? '...' : ''}
-                                            </div>
-                                          `;
-                                        }).join('')}
-                                      </div>
-                                    </div>
-                                  `;
-                                })()}
                               </div>
                             </div>
                           </div>
