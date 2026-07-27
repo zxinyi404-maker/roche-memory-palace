@@ -1,8 +1,8 @@
 {
   "id": "memory-palace",
   "name": "记忆宫殿",
-  "version": "3.0.0",
-  "description": "真正的记忆宫殿 - 房间布局 + 艾宾浩斯遗忘曲线可视化 + 智能复习计划",
+  "version": "4.0.0",
+  "description": "精致版记忆宫殿 - 对话式时间轴 + 丰富数据可视化 + 智能分析面板",
   "author": "zxinyi404",
   "entry": "https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/plugin.js",
   "hash": "",
