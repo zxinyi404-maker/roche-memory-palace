@@ -366,7 +366,13 @@
               };
             });
 
+            // 应用自动遗忘（客厅水位线）
+            memories = autoForget(memories);
+
             memories.sort((a, b) => b.timestamp - a.timestamp);
+
+            // 自动保存更新后的数据
+            await saveMemoryMeta();
           }
 
           async function saveMemoryMeta() {
@@ -1702,6 +1708,8 @@
           render();
         },
         async unmount(container) {
+          // 关闭窗口前保存所有记忆元数据
+          await saveMemoryMeta();
           container.replaceChildren();
         }
       }
