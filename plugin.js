@@ -1051,7 +1051,10 @@
             };
 
             container.querySelectorAll('[data-mem-id]').forEach(card => {
-              card.onclick = async () => {
+              card.onclick = async (e) => {
+                // 阻止事件冒泡，避免点击关联记忆时触发主卡片点击
+                if (e.target.closest('.related-memory')) return;
+
                 const memId = card.dataset.memId;
                 const mem = memories.find(m => m.id === memId);
                 if (mem) {
@@ -1060,6 +1063,43 @@
                   roche.ui.toast('✨ 记忆已巩固！保持率提升');
                   render();
                 }
+              };
+            });
+
+            // 关联记忆点击事件
+            container.querySelectorAll('.related-memory').forEach(relCard => {
+              relCard.onclick = async (e) => {
+                e.stopPropagation(); // 阻止冒泡
+                const relId = relCard.dataset.relatedId;
+                const relMem = memories.find(m => m.id === relId);
+                if (relMem) {
+                  // 跳转到相关记忆所在的房间
+                  selectedRoomId = relMem.room;
+                  currentView = 'roomDetail';
+                  render();
+
+                  // 等待渲染完成后滚动到目标记忆
+                  setTimeout(() => {
+                    const targetCard = container.querySelector(`[data-mem-id="${relId}"]`);
+                    if (targetCard) {
+                      targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      targetCard.style.background = 'rgba(232, 180, 184, 0.1)';
+                      setTimeout(() => {
+                        targetCard.style.background = '';
+                      }, 1500);
+                    }
+                  }, 100);
+                }
+              };
+
+              // 悬停效果
+              relCard.onmouseenter = () => {
+                relCard.style.background = 'rgba(184, 161, 193, 0.15)';
+                relCard.style.transform = 'translateX(4px)';
+              };
+              relCard.onmouseleave = () => {
+                relCard.style.background = 'rgba(245, 240, 235, 0.6)';
+                relCard.style.transform = 'translateX(0)';
               };
             });
           }
