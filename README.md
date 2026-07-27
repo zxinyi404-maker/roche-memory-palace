@@ -1,6 +1,12 @@
-# 🧠 Roche 记忆宫殿
+# 🧠 Roche 记忆宫殿 v2.0
 
-基于艾宾浩斯遗忘曲线的深度记忆管理系统，让你的 AI 伴侣拥有真正的长期记忆。
+**沉浸式 3D 记忆管理系统** - 基于艾宾浩斯遗忘曲线，让你的 AI 伴侣拥有真正的长期记忆。
+
+> 🎨 **v2.0 全新视觉** - 深空主题 | 玻璃态设计 | 粒子效果 | 流畅动画
+
+![Version](https://img.shields.io/badge/version-2.0.0-purple)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Roche](https://img.shields.io/badge/Roche-Plugin-pink)
 
 ## ✨ 核心功能
 
