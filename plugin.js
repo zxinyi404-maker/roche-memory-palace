@@ -1,21 +1,19 @@
-// Roche 记忆宫殿插件 v1.0.0
-// 基于艾宾浩斯遗忘曲线的深度记忆管理系统
+// Roche 记忆宫殿插件 v2.0.0
+// 3D 可视化记忆管理系统
 
 (function() {
   'use strict';
 
   // ============ 核心算法：艾宾浩斯遗忘曲线 ============
 
-  // 重要性等级 1-5
   const IMPORTANCE_LEVELS = {
-    1: { name: '琐事', color: '#94a3b8', baseStrength: 1, floor: 0, reinforceFactor: 1.2 },
-    2: { name: '一般', color: '#60a5fa', baseStrength: 3, floor: 0.1, reinforceFactor: 1.5 },
-    3: { name: '重要', color: '#f59e0b', baseStrength: 7, floor: 0.3, reinforceFactor: 2.0 },
-    4: { name: '关键', color: '#ef4444', baseStrength: 15, floor: 0.5, reinforceFactor: 2.5 },
-    5: { name: '刻骨铭心', color: '#a855f7', baseStrength: 30, floor: 0.7, reinforceFactor: 3.0 }
+    1: { name: '琐事', color: '#64748b', baseStrength: 1, floor: 0, reinforceFactor: 1.2, glow: '#94a3b8' },
+    2: { name: '一般', color: '#3b82f6', baseStrength: 3, floor: 0.1, reinforceFactor: 1.5, glow: '#60a5fa' },
+    3: { name: '重要', color: '#f59e0b', baseStrength: 7, floor: 0.3, reinforceFactor: 2.0, glow: '#fbbf24' },
+    4: { name: '关键', color: '#ef4444', baseStrength: 15, floor: 0.5, reinforceFactor: 2.5, glow: '#f87171' },
+    5: { name: '刻骨铭心', color: '#a855f7', baseStrength: 30, floor: 0.7, reinforceFactor: 3.0, glow: '#c084fc' }
   };
 
-  // 情绪等级 0-5
   const EMOTION_LEVELS = {
     0: { name: '中性', color: '#6b7280', strengthBonus: 0 },
     1: { name: '平静', color: '#3b82f6', strengthBonus: 0.5 },
@@ -25,30 +23,25 @@
     5: { name: '极致', color: '#dc2626', strengthBonus: 8 }
   };
 
-  // 记忆类型
   const MEMORY_TYPES = {
-    fact: { name: '事实', icon: '📌', color: '#3b82f6' },
-    experience: { name: '经历', icon: '🎬', color: '#10b981' },
-    skill: { name: '技能', icon: '⚡', color: '#f59e0b' },
-    relationship: { name: '关系', icon: '💫', color: '#ec4899' },
-    knowledge: { name: '知识', icon: '📚', color: '#8b5cf6' },
-    emotion: { name: '情感', icon: '❤️', color: '#ef4444' }
+    fact: { name: '事实', icon: '📌', color: '#3b82f6', glow: '#60a5fa' },
+    experience: { name: '经历', icon: '🎬', color: '#10b981', glow: '#34d399' },
+    skill: { name: '技能', icon: '⚡', color: '#f59e0b', glow: '#fbbf24' },
+    relationship: { name: '关系', icon: '💫', color: '#ec4899', glow: '#f472b6' },
+    knowledge: { name: '知识', icon: '📚', color: '#8b5cf6', glow: '#a78bfa' },
+    emotion: { name: '情感', icon: '❤️', color: '#ef4444', glow: '#f87171' }
   };
 
-  // 计算记忆强度 R = e^(-t/S)
   function calculateRetention(memory) {
     const now = Date.now();
-    const timePassed = (now - memory.lastRecall) / (1000 * 60 * 60 * 24); // 天
+    const timePassed = (now - memory.lastRecall) / (1000 * 60 * 60 * 24);
     const imp = IMPORTANCE_LEVELS[memory.importance] || IMPORTANCE_LEVELS[2];
     const emo = EMOTION_LEVELS[memory.emotion || 0] || EMOTION_LEVELS[0];
-
     const strength = imp.baseStrength + emo.strengthBonus + (memory.reviewCount || 0) * 0.5;
     const retention = Math.exp(-timePassed / strength);
-
     return Math.max(retention, imp.floor);
   }
 
-  // 巩固记忆（复习）
   function reinforceMemory(memory) {
     const imp = IMPORTANCE_LEVELS[memory.importance] || IMPORTANCE_LEVELS[2];
     memory.lastRecall = Date.now();
@@ -57,7 +50,6 @@
     return memory;
   }
 
-  // 智能分类：根据关键词猜测记忆类型
   function guessMemoryType(text) {
     const factKeywords = ['是', '叫', '住在', '来自', '出生于', '职业'];
     const experienceKeywords = ['经历', '发生', '去了', '做了', '看到', '遇到'];
@@ -72,24 +64,19 @@
     if (relationshipKeywords.some(kw => text.includes(kw))) return 'relationship';
     if (knowledgeKeywords.some(kw => text.includes(kw))) return 'knowledge';
     if (emotionKeywords.some(kw => text.includes(kw))) return 'emotion';
-
-    return 'fact'; // 默认
+    return 'fact';
   }
 
-  // 猜测重要性
   function guessImportance(text) {
     const trivialKeywords = ['可能', '也许', '好像'];
     const importantKeywords = ['一定', '必须', '重要', '关键'];
     const criticalKeywords = ['永远', '刻骨铭心', '难忘', '生死'];
-
     if (criticalKeywords.some(kw => text.includes(kw))) return 5;
     if (importantKeywords.some(kw => text.includes(kw))) return 4;
     if (trivialKeywords.some(kw => text.includes(kw))) return 1;
-
-    return 2; // 默认一般
+    return 2;
   }
 
-  // 猜测情绪强度
   function guessEmotion(text) {
     const emotionWords = {
       5: ['极度', '彻底', '无比', '太过', '崩溃'],
@@ -99,78 +86,30 @@
       1: ['平静', '淡定', '稳定'],
       0: []
     };
-
     for (let level = 5; level >= 0; level--) {
       if (emotionWords[level].some(kw => text.includes(kw))) return level;
     }
-
     return 0;
   }
 
-  // ============ 向量检索（使用 Roche 原生向量记忆）============
-
-  async function searchSimilarMemories(roche, conversationId, queryText, limit = 10) {
-    // 使用 Roche 的向量搜索
-    const results = await roche.memory.search({
-      conversationId,
-      query: queryText,
-      limit
-    });
-
-    return results.filter(r => r.kind === 'vector' || r.kind === 'fact');
-  }
-
-  // ============ 记忆关联网络 ============
-
-  function buildMemoryGraph(memories) {
-    const graph = { nodes: [], links: [] };
-
-    memories.forEach((mem, idx) => {
-      graph.nodes.push({
-        id: mem.id,
-        label: mem.summaryText || mem.text,
-        type: mem.type || 'fact',
-        importance: mem.importance || 2,
-        retention: calculateRetention(mem),
-        relatedIds: mem.relatedMemories || []
-      });
-    });
-
-    // 构建边
-    memories.forEach(mem => {
-      if (mem.relatedMemories && mem.relatedMemories.length > 0) {
-        mem.relatedMemories.forEach(targetId => {
-          if (graph.nodes.some(n => n.id === targetId)) {
-            graph.links.push({
-              source: mem.id,
-              target: targetId
-            });
-          }
-        });
-      }
-    });
-
-    return graph;
-  }
-
-  // ============ 主插件逻辑 ============
+  // ============ 主插件 ============
 
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '1.0.0',
+    version: '2.0.0',
     apps: [
       {
         id: 'memory-palace-home',
         name: '记忆宫殿',
         icon: 'psychology',
         async mount(container, roche) {
-          let currentView = 'dashboard'; // dashboard | timeline | graph | review
+          let currentView = 'palace';
           let memories = [];
           let conversations = [];
           let selectedConvId = null;
+          let selectedMemory = null;
 
-          // 加载会话列表
           async function loadConversations() {
             conversations = await roche.conversation.list();
             const saved = await roche.storage.get('selectedConversation');
@@ -181,21 +120,10 @@
             }
           }
 
-          // 加载记忆
           async function loadMemories() {
             if (!selectedConvId) return;
-
-            const longTerm = await roche.memory.getLongTerm({
-              conversationId: selectedConvId,
-              limit: 500
-            });
-
-            const rawMemories = [
-              ...(longTerm.facts || []),
-              ...(longTerm.vectors || [])
-            ];
-
-            // 增强记忆元数据
+            const longTerm = await roche.memory.getLongTerm({ conversationId: selectedConvId, limit: 500 });
+            const rawMemories = [...(longTerm.facts || []), ...(longTerm.vectors || [])];
             const enhanced = await roche.storage.get(`memoryMeta:${selectedConvId}`) || {};
 
             memories = rawMemories.map(mem => {
@@ -216,11 +144,9 @@
                 notes: meta.notes || ''
               };
             });
-
             memories.sort((a, b) => b.timestamp - a.timestamp);
           }
 
-          // 保存增强元数据
           async function saveMemoryMeta() {
             if (!selectedConvId) return;
             const meta = {};
@@ -240,181 +166,357 @@
             await roche.storage.set(`memoryMeta:${selectedConvId}`, meta);
           }
 
-          // 渲染函数（分块）
-          function render() {
+function render() {
             container.innerHTML = `
               <div class="memory-palace-app">
                 <style>
+                  /* 全局样式 */
                   .memory-palace-app {
                     width: 100%;
                     height: 100%;
                     display: flex;
                     flex-direction: column;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    background: #0a0e27;
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                    position: relative;
+                    overflow: hidden;
                   }
+
+                  /* 星空背景 */
+                  .mp-stars {
+                    position: absolute;
+                    width: 100%;
+                    height: 100%;
+                    pointer-events: none;
+                  }
+                  .mp-star {
+                    position: absolute;
+                    width: 2px;
+                    height: 2px;
+                    background: white;
+                    border-radius: 50%;
+                    animation: twinkle 3s infinite;
+                  }
+                  @keyframes twinkle {
+                    0%, 100% { opacity: 0.3; }
+                    50% { opacity: 1; }
+                  }
+
+                  /* 玻璃态头部 */
                   .mp-header {
-                    background: rgba(255,255,255,0.95);
-                    padding: 16px 20px;
+                    background: rgba(255, 255, 255, 0.05);
+                    backdrop-filter: blur(20px);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    padding: 20px 24px;
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    z-index: 10;
                   }
                   .mp-title {
-                    font-size: 24px;
+                    font-size: 28px;
                     font-weight: 700;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
                     -webkit-background-clip: text;
                     -webkit-text-fill-color: transparent;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
                   }
+                  .mp-title-icon {
+                    font-size: 32px;
+                    filter: drop-shadow(0 0 10px rgba(102, 126, 234, 0.5));
+                  }
+
+                  /* 会话选择器 */
                   .mp-conv-selector {
-                    padding: 8px 12px;
-                    border: 2px solid #667eea;
-                    border-radius: 8px;
+                    padding: 10px 16px;
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 12px;
+                    color: white;
                     font-size: 14px;
-                    background: white;
                     cursor: pointer;
+                    transition: all 0.3s;
                   }
+                  .mp-conv-selector:hover {
+                    background: rgba(255, 255, 255, 0.12);
+                    border-color: rgba(102, 126, 234, 0.5);
+                  }
+
+                  /* 导航栏 */
                   .mp-nav {
                     display: flex;
-                    gap: 10px;
-                    background: rgba(255,255,255,0.9);
-                    padding: 10px 20px;
+                    gap: 12px;
+                    padding: 16px 24px;
+                    background: rgba(255, 255, 255, 0.03);
+                    backdrop-filter: blur(10px);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                    z-index: 9;
                   }
                   .mp-nav-btn {
-                    padding: 10px 20px;
-                    border: none;
-                    border-radius: 8px;
-                    background: rgba(102,126,234,0.1);
+                    padding: 12px 24px;
+                    background: rgba(255, 255, 255, 0.05);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 10px;
+                    color: rgba(255, 255, 255, 0.7);
                     cursor: pointer;
-                    transition: all 0.2s;
+                    transition: all 0.3s;
                     font-size: 14px;
                     font-weight: 500;
-                  }
-                  .mp-nav-btn.active {
-                    background: #667eea;
-                    color: white;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
                   }
                   .mp-nav-btn:hover {
-                    background: #667eea;
+                    background: rgba(102, 126, 234, 0.2);
+                    border-color: rgba(102, 126, 234, 0.5);
                     color: white;
+                    transform: translateY(-2px);
                   }
+                  .mp-nav-btn.active {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    border-color: transparent;
+                    color: white;
+                    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+                  }
+
+                  /* 内容区 */
                   .mp-content {
                     flex: 1;
                     overflow-y: auto;
-                    padding: 20px;
+                    padding: 24px;
+                    position: relative;
                   }
-                  .mp-card {
-                    background: rgba(255,255,255,0.95);
-                    border-radius: 12px;
-                    padding: 20px;
-                    margin-bottom: 16px;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+
+                  /* 3D 宫殿视图 */
+                  .mp-palace-view {
+                    perspective: 1000px;
+                    position: relative;
+                    min-height: 600px;
                   }
+                  .mp-palace-scene {
+                    position: relative;
+                    transform-style: preserve-3d;
+                    animation: float 6s ease-in-out infinite;
+                  }
+                  @keyframes float {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-20px); }
+                  }
+
+                  /* 记忆节点（粒子效果）*/
+                  .mp-memory-orb {
+                    position: absolute;
+                    width: 80px;
+                    height: 80px;
+                    border-radius: 50%;
+                    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8), transparent);
+                    cursor: pointer;
+                    transition: all 0.3s;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 24px;
+                    animation: pulse 2s ease-in-out infinite;
+                  }
+                  .mp-memory-orb:hover {
+                    transform: scale(1.2);
+                    z-index: 100;
+                  }
+                  @keyframes pulse {
+                    0%, 100% { box-shadow: 0 0 20px currentColor; }
+                    50% { box-shadow: 0 0 40px currentColor, 0 0 60px currentColor; }
+                  }
+
+                  /* 玻璃态卡片 */
+                  .mp-glass-card {
+                    background: rgba(255, 255, 255, 0.05);
+                    backdrop-filter: blur(20px);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 16px;
+                    padding: 24px;
+                    margin-bottom: 20px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                    transition: all 0.3s;
+                  }
+                  .mp-glass-card:hover {
+                    transform: translateY(-4px);
+                    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+                    border-color: rgba(102, 126, 234, 0.3);
+                  }
+
+                  /* 统计卡片网格 */
                   .mp-stat-grid {
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                    gap: 16px;
-                    margin-bottom: 20px;
+                    gap: 20px;
+                    margin-bottom: 24px;
                   }
                   .mp-stat-card {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 20px;
-                    border-radius: 12px;
+                    background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+                    backdrop-filter: blur(20px);
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 16px;
+                    padding: 24px;
                     text-align: center;
+                    transition: all 0.3s;
+                  }
+                  .mp-stat-card:hover {
+                    transform: translateY(-4px) scale(1.02);
+                    box-shadow: 0 12px 40px rgba(102, 126, 234, 0.3);
                   }
                   .mp-stat-value {
-                    font-size: 36px;
+                    font-size: 48px;
                     font-weight: 700;
+                    background: linear-gradient(135deg, #667eea 0%, #f093fb 100%);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
                     margin-bottom: 8px;
                   }
                   .mp-stat-label {
                     font-size: 14px;
-                    opacity: 0.9;
+                    color: rgba(255, 255, 255, 0.7);
                   }
+
+                  /* 记忆列表项 */
                   .mp-memory-item {
-                    background: white;
-                    border-left: 4px solid #667eea;
-                    padding: 16px;
-                    margin-bottom: 12px;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+                    background: rgba(255, 255, 255, 0.05);
+                    backdrop-filter: blur(10px);
+                    border-left: 4px solid;
+                    border-radius: 12px;
+                    padding: 20px;
+                    margin-bottom: 16px;
                     cursor: pointer;
-                    transition: all 0.2s;
+                    transition: all 0.3s;
+                    position: relative;
+                    overflow: hidden;
+                  }
+                  .mp-memory-item::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+                    transform: translateX(-100%);
+                    transition: transform 0.6s;
+                  }
+                  .mp-memory-item:hover::before {
+                    transform: translateX(100%);
                   }
                   .mp-memory-item:hover {
-                    transform: translateX(4px);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                    transform: translateX(8px);
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                    background: rgba(255, 255, 255, 0.08);
                   }
+
                   .mp-memory-header {
                     display: flex;
                     align-items: center;
-                    gap: 10px;
-                    margin-bottom: 8px;
+                    gap: 12px;
+                    margin-bottom: 12px;
+                    flex-wrap: wrap;
                   }
                   .mp-memory-icon {
-                    font-size: 20px;
+                    font-size: 24px;
+                    filter: drop-shadow(0 0 8px currentColor);
                   }
-                  .mp-memory-type {
+                  .mp-memory-badge {
+                    padding: 6px 12px;
+                    border-radius: 8px;
                     font-size: 12px;
-                    padding: 4px 8px;
-                    border-radius: 4px;
-                    background: #f3f4f6;
-                    color: #374151;
+                    font-weight: 500;
+                    backdrop-filter: blur(10px);
                   }
                   .mp-memory-text {
-                    font-size: 14px;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-size: 15px;
                     line-height: 1.6;
-                    color: #1f2937;
-                    margin-bottom: 8px;
+                    margin-bottom: 12px;
                   }
                   .mp-memory-meta {
                     display: flex;
-                    gap: 12px;
-                    font-size: 12px;
-                    color: #6b7280;
+                    gap: 16px;
+                    font-size: 13px;
+                    color: rgba(255, 255, 255, 0.6);
+                    flex-wrap: wrap;
                   }
+
+                  /* 保持率进度条 */
                   .mp-retention-bar {
                     height: 6px;
-                    background: #e5e7eb;
+                    background: rgba(255, 255, 255, 0.1);
                     border-radius: 3px;
                     overflow: hidden;
-                    margin-top: 8px;
+                    margin-top: 12px;
                   }
                   .mp-retention-fill {
                     height: 100%;
-                    transition: width 0.3s;
+                    transition: width 0.6s ease-out;
+                    background: linear-gradient(90deg, currentColor, transparent);
                   }
-                  .mp-btn-primary {
+
+                  /* 空状态 */
+                  .mp-empty {
+                    text-align: center;
+                    padding: 80px 20px;
+                    color: rgba(255, 255, 255, 0.5);
+                  }
+                  .mp-empty-icon {
+                    font-size: 80px;
+                    margin-bottom: 20px;
+                    filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.3));
+                  }
+
+                  /* 按钮 */
+                  .mp-btn {
                     padding: 12px 24px;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     color: white;
                     border: none;
-                    border-radius: 8px;
+                    border-radius: 10px;
                     cursor: pointer;
                     font-size: 14px;
                     font-weight: 500;
-                    transition: all 0.2s;
+                    transition: all 0.3s;
                   }
-                  .mp-btn-primary:hover {
+                  .mp-btn:hover {
                     transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+                    box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
                   }
-                  .mp-empty {
-                    text-align: center;
-                    padding: 60px 20px;
-                    color: rgba(255,255,255,0.8);
+
+                  /* 关闭按钮 */
+                  .mp-close-btn {
+                    width: 36px;
+                    height: 36px;
+                    background: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 8px;
+                    color: white;
+                    font-size: 20px;
+                    cursor: pointer;
+                    transition: all 0.3s;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                   }
-                  .mp-empty-icon {
-                    font-size: 64px;
-                    margin-bottom: 16px;
+                  .mp-close-btn:hover {
+                    background: rgba(239, 68, 68, 0.3);
+                    border-color: #ef4444;
                   }
                 </style>
 
+                <!-- 星空背景 -->
+                <div class="mp-stars" id="stars"></div>
+
+                <!-- 头部 -->
                 <div class="mp-header">
-                  <div class="mp-title">🧠 记忆宫殿</div>
+                  <div class="mp-title">
+                    <span class="mp-title-icon">🧠</span>
+                    <span>记忆宫殿</span>
+                  </div>
                   <select class="mp-conv-selector" id="convSelector">
                     ${conversations.map(c => `
                       <option value="${c.id}" ${c.id === selectedConvId ? 'selected' : ''}>
@@ -422,30 +524,49 @@
                       </option>
                     `).join('')}
                   </select>
-                  <button class="mp-nav-btn" id="closeBtn">×</button>
+                  <div class="mp-close-btn" id="closeBtn">×</div>
                 </div>
 
+                <!-- 导航 -->
                 <div class="mp-nav">
-                  <button class="mp-nav-btn ${currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard">📊 仪表盘</button>
-                  <button class="mp-nav-btn ${currentView === 'timeline' ? 'active' : ''}" data-view="timeline">📅 时间轴</button>
-                  <button class="mp-nav-btn ${currentView === 'graph' ? 'active' : ''}" data-view="graph">🕸️ 关联图</button>
-                  <button class="mp-nav-btn ${currentView === 'review' ? 'active' : ''}" data-view="review">🔄 复习</button>
+                  <button class="mp-nav-btn ${currentView === 'palace' ? 'active' : ''}" data-view="palace">
+                    🏛️ 宫殿
+                  </button>
+                  <button class="mp-nav-btn ${currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard">
+                    📊 仪表盘
+                  </button>
+                  <button class="mp-nav-btn ${currentView === 'timeline' ? 'active' : ''}" data-view="timeline">
+                    📅 时间轴
+                  </button>
+                  <button class="mp-nav-btn ${currentView === 'review' ? 'active' : ''}" data-view="review">
+                    🔄 复习
+                  </button>
                 </div>
 
+                <!-- 内容区 -->
                 <div class="mp-content" id="mpContent"></div>
               </div>
             `;
 
+            // 生成星空
+            const starsEl = container.querySelector('#stars');
+            for (let i = 0; i < 100; i++) {
+              const star = document.createElement('div');
+              star.className = 'mp-star';
+              star.style.left = Math.random() * 100 + '%';
+              star.style.top = Math.random() * 100 + '%';
+              star.style.animationDelay = Math.random() * 3 + 's';
+              starsEl.appendChild(star);
+            }
+
             // 事件绑定
             container.querySelector('#closeBtn').onclick = () => roche.ui.closeApp();
-
             container.querySelector('#convSelector').onchange = async (e) => {
               selectedConvId = e.target.value;
               await roche.storage.set('selectedConversation', selectedConvId);
               await loadMemories();
               render();
             };
-
             container.querySelectorAll('[data-view]').forEach(btn => {
               btn.onclick = () => {
                 currentView = btn.dataset.view;
@@ -458,26 +579,36 @@
 
           function renderContent() {
             const contentEl = container.querySelector('#mpContent');
-
             if (!selectedConvId || memories.length === 0) {
               contentEl.innerHTML = `
                 <div class="mp-empty">
                   <div class="mp-empty-icon">💭</div>
-                  <div>暂无记忆数据</div>
+                  <div style="font-size: 18px;">暂无记忆数据</div>
+                  <div style="margin-top: 12px; font-size: 14px;">开始对话后，AI 会自动创建记忆</div>
                 </div>
               `;
               return;
             }
 
-            if (currentView === 'dashboard') {
-              renderDashboard(contentEl);
-            } else if (currentView === 'timeline') {
-              renderTimeline(contentEl);
-            } else if (currentView === 'graph') {
-              renderGraph(contentEl);
-            } else if (currentView === 'review') {
-              renderReview(contentEl);
-            }
+            if (currentView === 'palace') renderPalace(contentEl);
+            else if (currentView === 'dashboard') renderDashboard(contentEl);
+            else if (currentView === 'timeline') renderTimeline(contentEl);
+            else if (currentView === 'review') renderReview(contentEl);
+          }
+
+          function renderPalace(contentEl) {
+            contentEl.innerHTML = `
+              <div class="mp-palace-view">
+                <div class="mp-palace-scene" id="palaceScene">
+                  <div style="color: rgba(255,255,255,0.7); text-align: center; padding: 60px 20px;">
+                    <div style="font-size: 64px; margin-bottom: 20px;">🏛️</div>
+                    <div style="font-size: 24px; margin-bottom: 12px;">3D 记忆宫殿</div>
+                    <div style="font-size: 14px; opacity: 0.7;">即将上线：沉浸式 3D 可视化体验</div>
+                    <div style="font-size: 14px; opacity: 0.7; margin-top: 8px;">记忆将以粒子形式漂浮在虚拟空间中</div>
+                  </div>
+                </div>
+              </div>
+            `;
           }
 
           function renderDashboard(contentEl) {
@@ -485,9 +616,7 @@
             const avgRetention = memories.reduce((sum, m) => sum + calculateRetention(m), 0) / totalMemories;
             const needReview = memories.filter(m => calculateRetention(m) < 0.3).length;
             const byType = {};
-            memories.forEach(m => {
-              byType[m.type] = (byType[m.type] || 0) + 1;
-            });
+            memories.forEach(m => { byType[m.type] = (byType[m.type] || 0) + 1; });
 
             contentEl.innerHTML = `
               <div class="mp-stat-grid">
@@ -505,28 +634,28 @@
                 </div>
               </div>
 
-              <div class="mp-card">
-                <h3 style="margin-top:0;">📈 记忆分布</h3>
+              <div class="mp-glass-card">
+                <h3 style="color: white; margin: 0 0 20px 0;">📈 记忆分布</h3>
                 ${Object.keys(byType).map(type => {
                   const typeInfo = MEMORY_TYPES[type] || MEMORY_TYPES.fact;
                   const count = byType[type];
                   const percent = (count / totalMemories * 100).toFixed(1);
                   return `
-                    <div style="margin-bottom: 12px;">
-                      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <div style="margin-bottom: 16px;">
+                      <div style="display: flex; justify-content: space-between; margin-bottom: 8px; color: rgba(255,255,255,0.9);">
                         <span>${typeInfo.icon} ${typeInfo.name}</span>
                         <span>${count} (${percent}%)</span>
                       </div>
-                      <div style="height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden;">
-                        <div style="width:${percent}%; height:100%; background:${typeInfo.color};"></div>
+                      <div style="height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                        <div style="width: ${percent}%; height: 100%; background: linear-gradient(90deg, ${typeInfo.color}, ${typeInfo.glow}); box-shadow: 0 0 10px ${typeInfo.glow};"></div>
                       </div>
                     </div>
                   `;
                 }).join('')}
               </div>
 
-              <div class="mp-card">
-                <h3 style="margin-top:0;">🔥 最近记忆</h3>
+              <div class="mp-glass-card">
+                <h3 style="color: white; margin: 0 0 20px 0;">🔥 最近记忆</h3>
                 ${memories.slice(0, 10).map(mem => renderMemoryItem(mem)).join('')}
               </div>
             `;
@@ -541,9 +670,13 @@
             return `
               <div class="mp-memory-item" data-id="${mem.id}" style="border-left-color: ${typeInfo.color};">
                 <div class="mp-memory-header">
-                  <span class="mp-memory-icon">${typeInfo.icon}</span>
-                  <span class="mp-memory-type">${typeInfo.name}</span>
-                  <span class="mp-memory-type" style="background:${impInfo.color}; color:white;">${impInfo.name}</span>
+                  <span class="mp-memory-icon" style="color: ${typeInfo.color};">${typeInfo.icon}</span>
+                  <span class="mp-memory-badge" style="background: ${typeInfo.color}33; color: ${typeInfo.color}; border: 1px solid ${typeInfo.color}66;">
+                    ${typeInfo.name}
+                  </span>
+                  <span class="mp-memory-badge" style="background: ${impInfo.color}33; color: ${impInfo.color}; border: 1px solid ${impInfo.color}66;">
+                    ${impInfo.name}
+                  </span>
                 </div>
                 <div class="mp-memory-text">${mem.summaryText || mem.text}</div>
                 <div class="mp-memory-meta">
@@ -552,7 +685,7 @@
                   <span>💪 保持率 ${(retention * 100).toFixed(0)}%</span>
                 </div>
                 <div class="mp-retention-bar">
-                  <div class="mp-retention-fill" style="width: ${retention * 100}%; background: ${retentionColor};"></div>
+                  <div class="mp-retention-fill" style="width: ${retention * 100}%; color: ${retentionColor};"></div>
                 </div>
               </div>
             `;
@@ -560,39 +693,21 @@
 
           function renderTimeline(contentEl) {
             const sortedMemories = [...memories].sort((a, b) => b.timestamp - a.timestamp);
-
             contentEl.innerHTML = `
-              <div class="mp-card">
-                <h2 style="margin-top:0;">📅 记忆时间轴</h2>
+              <div class="mp-glass-card">
+                <h2 style="color: white; margin: 0 0 24px 0;">📅 记忆时间轴</h2>
                 ${sortedMemories.map(mem => renderMemoryItem(mem)).join('')}
               </div>
             `;
-
-            // 绑定点击事件
-            contentEl.querySelectorAll('.mp-memory-item').forEach(el => {
-              el.onclick = () => showMemoryDetail(el.dataset.id);
-            });
-          }
-
-          function renderGraph(contentEl) {
-            contentEl.innerHTML = `
-              <div class="mp-card">
-                <h2 style="margin-top:0;">🕸️ 记忆关联网络</h2>
-                <p style="color:#6b7280;">关联网络可视化功能开发中...</p>
-                <p style="color:#6b7280;">将展示记忆之间的连接关系，形成知识图谱</p>
-              </div>
-            `;
+            bindMemoryClicks(contentEl);
           }
 
           function renderReview(contentEl) {
-            const needReview = memories
-              .filter(m => calculateRetention(m) < 0.3)
-              .sort((a, b) => calculateRetention(a) - calculateRetention(b));
-
+            const needReview = memories.filter(m => calculateRetention(m) < 0.3).sort((a, b) => calculateRetention(a) - calculateRetention(b));
             contentEl.innerHTML = `
-              <div class="mp-card">
-                <h2 style="margin-top:0;">🔄 需要复习的记忆</h2>
-                <p style="color:#6b7280; margin-bottom:20px;">
+              <div class="mp-glass-card">
+                <h2 style="color: white; margin: 0 0 12px 0;">🔄 需要复习的记忆</h2>
+                <p style="color: rgba(255,255,255,0.6); margin-bottom: 24px;">
                   找到 ${needReview.length} 条记忆需要复习（保持率 < 30%）
                 </p>
                 ${needReview.length === 0 ?
@@ -601,36 +716,30 @@
                 }
               </div>
             `;
+            bindMemoryClicks(contentEl, true);
+          }
 
-            // 绑定复习按钮
-            contentEl.querySelectorAll('.mp-memory-item').forEach(el => {
+          function bindMemoryClicks(parentEl, isReview = false) {
+            parentEl.querySelectorAll('.mp-memory-item').forEach(el => {
               el.onclick = async () => {
                 const memId = el.dataset.id;
                 const mem = memories.find(m => m.id === memId);
-                if (mem) {
+                if (mem && isReview) {
                   reinforceMemory(mem);
                   await saveMemoryMeta();
                   roche.ui.toast('✅ 记忆已巩固');
                   render();
+                } else if (mem) {
+                  roche.ui.toast(`💡 ${mem.summaryText || mem.text}`);
                 }
               };
             });
           }
 
-          async function showMemoryDetail(memId) {
-            const mem = memories.find(m => m.id === memId);
-            if (!mem) return;
-
-            // TODO: 显示记忆详情弹窗
-            roche.ui.toast(`记忆详情：${mem.summaryText || mem.text}`);
-          }
-
-          // 初始化
           await loadConversations();
           await loadMemories();
           render();
         },
-
         async unmount(container) {
           container.replaceChildren();
         }
