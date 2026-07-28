@@ -1,4 +1,4 @@
-// Roche 记忆宫殿插件 v7.1.0
+// Roche 记忆宫殿插件 v7.1.1
 // 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联
 
 (function() {
@@ -316,7 +316,7 @@
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '7.1.0',
+    version: '7.1.1',
     apps: [
       {
         id: 'memory-palace-home',
