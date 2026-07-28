@@ -861,15 +861,16 @@
             };
 
             container.querySelectorAll('[data-room-id]').forEach(card => {
+              const roomId = card.dataset.roomId; // 在外层提前获取，避免闭包问题
+
               card.onclick = () => {
-                selectedRoomId = card.dataset.roomId;
+                selectedRoomId = roomId;
                 currentView = 'roomDetail';
                 render();
               };
 
               // 悬停效果
               card.onmouseenter = () => {
-                const roomId = card.dataset.roomId;
                 const room = SEVEN_ROOMS[roomId];
                 card.style.borderColor = room.color;
               };
