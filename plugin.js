@@ -329,6 +329,7 @@
           let memories = [];
           let selectedRoomId = null;
           let searchQuery = '';
+          let saveTimer = null; // 延迟保存定时器
 
           async function loadConversations() {
             conversations = await roche.conversation.list();
@@ -372,7 +373,7 @@
             memories.sort((a, b) => b.timestamp - a.timestamp);
 
             // 自动保存更新后的数据
-            await saveMemoryMeta();
+            scheduleSave();
           }
 
           async function saveMemoryMeta() {
@@ -389,6 +390,21 @@
               };
             });
             await roche.storage.set(`memoryMeta:${selectedConvId}`, meta);
+          }
+
+          // 延迟保存（避免阻塞通知）
+          function scheduleSave() {
+            // 清除之前的定时器
+            if (saveTimer) {
+              clearTimeout(saveTimer);
+            }
+
+            // 2秒后保存（批量合并多次操作）
+            saveTimer = setTimeout(() => {
+              saveMemoryMeta().catch(err => {
+                console.error('[记忆宫殿] 延迟保存失败:', err);
+              });
+            }, 2000);
           }
 
           function getMemoriesByRoom(roomId) {
@@ -1084,7 +1100,7 @@
                 const mem = memories.find(m => m.id === memId);
                 if (mem) {
                   reinforceMemory(mem);
-                  await saveMemoryMeta();
+                  scheduleSave();
                   roche.ui.toast('✨ 记忆已巩固！保持率提升');
                   render();
                 }
@@ -1221,7 +1237,7 @@
                 const mem = memories.find(m => m.id === memId);
                 if (mem) {
                   reinforceMemory(mem);
-                  await saveMemoryMeta();
+                  scheduleSave();
                   roche.ui.toast('✨ 记忆已巩固！');
                   render();
                 }
@@ -1430,7 +1446,7 @@
                 const mem = memories.find(m => m.id === eventId);
                 if (mem) {
                   reinforceMemory(mem);
-                  await saveMemoryMeta();
+                  scheduleSave();
                   roche.ui.toast('✨ 重要记忆已巩固！');
                   render();
                 }
@@ -1565,7 +1581,7 @@
                 const mem = memories.find(m => m.id === memId);
                 if (mem) {
                   reinforceMemory(mem);
-                  await saveMemoryMeta();
+                  scheduleSave();
                   roche.ui.toast('✨ 记忆已巩固！');
                   render();
                 }
@@ -1721,7 +1737,7 @@
         },
         async unmount(container) {
           // 关闭窗口前保存所有记忆元数据
-          await saveMemoryMeta();
+          scheduleSave();
           container.replaceChildren();
         }
       }
