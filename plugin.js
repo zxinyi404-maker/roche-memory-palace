@@ -863,7 +863,10 @@
             container.querySelectorAll('[data-room-id]').forEach(card => {
               const roomId = card.dataset.roomId; // 在外层提前获取，避免闭包问题
 
-              card.onclick = () => {
+              card.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Room clicked:', roomId); // 调试信息
                 selectedRoomId = roomId;
                 currentView = 'roomDetail';
                 render();
@@ -883,6 +886,14 @@
 // ============ 3. 房间详情页 ============
 
           function renderRoomDetail() {
+            // 添加安全检查
+            if (!selectedRoomId || !SEVEN_ROOMS[selectedRoomId]) {
+              console.error('Invalid room ID:', selectedRoomId);
+              currentView = 'memoryPalace';
+              render();
+              return;
+            }
+
             const room = SEVEN_ROOMS[selectedRoomId];
             const roomMemories = getMemoriesByRoom(selectedRoomId);
 
