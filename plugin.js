@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v8.0.2
-// 🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查 | 莫兰迪风格按钮
+// Roche 记忆宫殿插件 v8.0.3
+// 🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查 | 完善自动遗忘
 
 (function() {
   'use strict';
@@ -319,7 +319,7 @@
 
   // ============ 自动遗忘（客厅满了后迁移）============
 
-  function autoForget(memories) {
+  async function autoForget(memories, syncToRoche = false) {
     const livingRoomMemories = memories.filter(m => m.room === 'livingRoom');
 
     if (livingRoomMemories.length > 200) {
@@ -330,14 +330,34 @@
         return scoreA - scoreB;
       });
 
+      // 记录需要迁移的记忆
+      const toMigrate = livingRoomMemories.slice(0, livingRoomMemories.length - 200);
+      let bedroomCount = 0;
+      let atticCount = 0;
+
       // 重要的晋升到卧室，不重要的沉入阁楼
-      livingRoomMemories.slice(0, livingRoomMemories.length - 200).forEach(mem => {
+      for (const mem of toMigrate) {
         if (mem.importance >= 7) {
           mem.room = 'bedroom';
+          bedroomCount++;
         } else {
           mem.room = 'attic';
+          atticCount++;
         }
-      });
+
+        // 如果需要同步到 Roche
+        if (syncToRoche && typeof syncMemoryToRoche === 'function') {
+          try {
+            await syncMemoryToRoche(mem);
+          } catch (err) {
+            console.error('[记忆宫殿] 自动遗忘同步失败:', err);
+          }
+        }
+      }
+
+      if (toMigrate.length > 0) {
+        console.log(`[记忆宫殿] 自动遗忘：${toMigrate.length} 条记忆迁移（卧室 ${bedroomCount} / 阁楼 ${atticCount}）`);
+      }
     }
 
     return memories;
@@ -348,7 +368,7 @@
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '8.0.2',
+    version: '8.0.3',
     apps: [
       {
         id: 'memory-palace-home',
@@ -434,8 +454,8 @@
               };
             });
 
-            // 应用自动遗忘（客厅水位线）
-            memories = autoForget(memories);
+            // 应用自动遗忘（客厅水位线）- 注意：此时 syncMemoryToRoche 还未定义，所以不同步
+            memories = await autoForget(memories, false);
 
             memories.sort((a, b) => b.timestamp - a.timestamp);
 
