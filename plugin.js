@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v7.3.1
-// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联 + 现代化UI重构 + 真实角色头像
+// Roche 记忆宫殿插件 v7.3.2
+// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联 + 现代化UI重构 + 精确复刻设计图
 
 (function() {
   'use strict';
@@ -29,9 +29,9 @@
       name: '客厅',
       icon: 'sofa',
       desc: '日常闲聊、近期互动',
-      color: '#B8E6B8',
-      bgColor: 'rgba(184, 230, 184, 0.15)',
-      textColor: '#4A7C5F',
+      color: '#5FD068',
+      bgColor: 'rgba(184, 234, 220, 0.3)',
+      textColor: '#5FD068',
       capacity: 200,
       decayRate: 0.8,
       brainArea: '海马体'
@@ -41,9 +41,9 @@
       name: '卧室',
       icon: 'bed',
       desc: '亲密情感、深层羁绊',
-      color: '#E8B4D9',
-      bgColor: 'rgba(232, 180, 217, 0.15)',
-      textColor: '#8B4A7D',
+      color: '#E87EA8',
+      bgColor: 'rgba(255, 230, 242, 0.5)',
+      textColor: '#E87EA8',
       capacity: Infinity,
       decayRate: 0.1,
       brainArea: '新皮层'
@@ -53,9 +53,9 @@
       name: '书房',
       icon: 'book',
       desc: '工作学习、技能成长',
-      color: '#B4D4E8',
-      bgColor: 'rgba(180, 212, 232, 0.15)',
-      textColor: '#4A6E8B',
+      color: '#5B9BD5',
+      bgColor: 'rgba(217, 234, 250, 0.5)',
+      textColor: '#5B9BD5',
       capacity: Infinity,
       decayRate: 0.3,
       brainArea: '前额叶'
@@ -65,9 +65,9 @@
       name: 'User的房间',
       icon: 'user',
       desc: '用户个人信息、习惯',
-      color: '#FFD4A3',
-      bgColor: 'rgba(255, 212, 163, 0.15)',
-      textColor: '#996B2D',
+      color: '#F5A962',
+      bgColor: 'rgba(255, 242, 224, 0.6)',
+      textColor: '#F5A962',
       capacity: Infinity,
       decayRate: 0.2,
       brainArea: '颞顶联合区'
@@ -77,9 +77,9 @@
       name: '自我房间',
       icon: 'mirror',
       desc: '角色自我认同、演变',
-      color: '#D4B4E8',
-      bgColor: 'rgba(212, 180, 232, 0.15)',
-      textColor: '#6B4A8B',
+      color: '#9B7FBD',
+      bgColor: 'rgba(230, 224, 245, 0.5)',
+      textColor: '#9B7FBD',
       capacity: Infinity,
       decayRate: 0,
       brainArea: '默认模式网络'
@@ -89,9 +89,9 @@
       name: '阁楼',
       icon: 'home',
       desc: '未消化的困惑、潜意识',
-      color: '#C9C4BD',
-      bgColor: 'rgba(201, 196, 189, 0.15)',
-      textColor: '#6B6860',
+      color: '#A8A8A8',
+      bgColor: 'rgba(230, 230, 235, 0.5)',
+      textColor: '#A8A8A8',
       capacity: Infinity,
       decayRate: 0,
       brainArea: '杏仁核-海马'
@@ -101,9 +101,9 @@
       name: '窗台',
       icon: 'sunrise',
       desc: '期盼、目标、憧憬',
-      color: '#FFE8B4',
-      bgColor: 'rgba(255, 232, 180, 0.15)',
-      textColor: '#997A3D',
+      color: '#FFA76F',
+      bgColor: 'rgba(255, 237, 224, 0.6)',
+      textColor: '#FFA76F',
       capacity: Infinity,
       decayRate: 0.5,
       brainArea: '多巴胺奖赏系统'
@@ -857,101 +857,126 @@
           function renderMemoryPalace() {
             const selectedConv = conversations.find(c => c.id === selectedConvId);
             const convName = selectedConv ? (selectedConv.name || selectedConv.title || selectedConv.handle) : '未命名';
+            const charAvatar = selectedConv?._character?.avatar || '';
             const totalMemories = memories.length;
             const wishCount = getMemoriesByRoom('windowSill').length;
 
             container.innerHTML = GLOBAL_STYLES + `
               <div class="mp-app">
                 <!-- 头部 -->
-                <div class="mp-header" style="padding: 22px 24px;">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-                    <div style="font-size: 20px; color: #6B5F58; cursor: pointer; font-weight: 600; transition: all 0.2s;" id="backBtn"
-                         onmouseover="this.style.color='#8B7E77'; this.style.transform='translateX(-2px)'"
-                         onmouseout="this.style.color='#6B5F58'; this.style.transform='translateX(0)'">← 返回</div>
-                    <div style="font-size: 19px; font-weight: 700; color: #6B5F58; text-align: center; flex: 1; letter-spacing: 0.5px;">
-                      ${convName}的记忆宫殿
+                <div class="mp-header" style="padding: 20px 24px 16px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <div style="font-size: 17px; color: rgba(107, 95, 88, 0.6); cursor: pointer; font-weight: 500;" id="backBtn">← 返回</div>
+                    <div style="display: flex; align-items: center; gap: 12px; flex: 1; justify-content: center;">
+                      ${charAvatar ? `
+                        <img src="${charAvatar}" style="
+                          width: 36px;
+                          height: 36px;
+                          border-radius: 10px;
+                          object-fit: cover;
+                        " />
+                      ` : ''}
+                      <div style="font-size: 18px; font-weight: 700; color: #3D3633;">
+                        ${convName} 的记忆宫殿
+                      </div>
+                      <div style="font-size: 14px; color: rgba(107, 95, 88, 0.4);">▼</div>
                     </div>
-                    <div style="font-size: 20px; color: #6B5F58; width: 64px;"></div>
+                    <div style="
+                      width: 44px;
+                      height: 44px;
+                      background: white;
+                      border-radius: 14px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      cursor: pointer;
+                      box-shadow: 0 2px 8px rgba(184, 161, 193, 0.15);
+                    ">⚙️</div>
                   </div>
-                  <div style="text-align: center; font-size: 13px; color: #8B7E77; font-weight: 500;">
-                    ${totalMemories}条记忆 · 0个事件盒 · ${wishCount}个期盼
+                  <div style="text-align: center; font-size: 13px; color: rgba(107, 95, 88, 0.5); font-weight: 400;">
+                    ${totalMemories} 条记忆 · 0 个事件盒 · ${wishCount} 个期盼
                   </div>
                 </div>
 
                 <!-- 功能按钮区 -->
                 <div style="
                   padding: 16px 24px;
-                  background: white;
-                  border-bottom: 1px solid rgba(184, 165, 161, 0.1);
+                  background: transparent;
                   flex-shrink: 0;
                 ">
                   <div style="display: flex; gap: 12px; overflow-x: auto; margin-bottom: 16px;">
                     <div class="mp-btn" style="
-                      background: rgba(184, 230, 184, 0.12);
-                      color: #4A7C5F;
-                      border: 1.5px solid rgba(184, 230, 184, 0.3);
+                      background: white;
+                      color: #8B6B9D;
+                      border: none;
                       white-space: nowrap;
                       font-weight: 600;
                       border-radius: 20px;
-                      padding: 14px 24px;
+                      padding: 12px 20px;
+                      box-shadow: 0 2px 8px rgba(184, 161, 193, 0.12);
+                      display: flex;
+                      align-items: center;
+                      gap: 6px;
                     " id="viewAllBtn">
-                      📋 查看全部记忆
+                      <span style="font-size: 16px;">📋</span>
+                      <span>查看全部记忆</span>
                     </div>
                     <div class="mp-btn" style="
-                      background: rgba(232, 180, 217, 0.12);
-                      color: #8B4A7D;
-                      border: 1.5px solid rgba(232, 180, 217, 0.3);
+                      background: white;
+                      color: #8B6B9D;
+                      border: none;
                       white-space: nowrap;
                       font-weight: 600;
                       border-radius: 20px;
-                      padding: 14px 24px;
+                      padding: 12px 20px;
+                      box-shadow: 0 2px 8px rgba(184, 161, 193, 0.12);
+                      display: flex;
+                      align-items: center;
+                      gap: 6px;
                     " id="viewEventsBtn">
-                      📦 查看事件盒
+                      <span style="font-size: 16px;">📦</span>
+                      <span>查看事件盒</span>
                     </div>
                   </div>
 
                   <!-- 搜索框 -->
                   <div style="position: relative;">
+                    <div style="
+                      position: absolute;
+                      left: 20px;
+                      top: 50%;
+                      transform: translateY(-50%);
+                      font-size: 18px;
+                      color: rgba(107, 95, 88, 0.4);
+                    ">🔍</div>
                     <input
                       type="text"
                       id="quickSearchInput"
-                      placeholder="搜索记忆（关键词、标签、情绪...）"
+                      placeholder="搜索记忆（关键词、标签、情绪..）"
                       style="
                         width: 100%;
-                        padding: 16px 52px 16px 24px;
-                        border: 2px solid rgba(184, 161, 193, 0.2);
+                        padding: 14px 20px 14px 50px;
+                        border: none;
                         border-radius: 24px;
                         font-size: 14px;
-                        color: #6B5F58;
-                        background: rgba(255, 255, 255, 0.8);
-                        backdrop-filter: blur(10px);
+                        color: #3D3633;
+                        background: rgba(255, 252, 247, 0.95);
                         outline: none;
                         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                        box-shadow: 0 2px 12px rgba(184, 161, 193, 0.08);
+                        box-shadow: 0 2px 8px rgba(184, 161, 193, 0.08);
                       "
-                      onfocus="this.style.borderColor='rgba(184, 161, 193, 0.5)'; this.style.boxShadow='0 4px 20px rgba(184, 161, 193, 0.16)'; this.style.background='rgba(255, 255, 255, 0.95)'"
-                      onblur="this.style.borderColor='rgba(184, 161, 193, 0.2)'; this.style.boxShadow='0 2px 12px rgba(184, 161, 193, 0.08)'; this.style.background='rgba(255, 255, 255, 0.8)'"
+                      onfocus="this.style.boxShadow='0 4px 16px rgba(184, 161, 193, 0.15)'; this.style.background='white'"
+                      onblur="this.style.boxShadow='0 2px 8px rgba(184, 161, 193, 0.08)'; this.style.background='rgba(255, 252, 247, 0.95)'"
                     />
-                    <div style="
-                      position: absolute;
-                      right: 18px;
-                      top: 50%;
-                      transform: translateY(-50%);
-                      font-size: 20px;
-                      cursor: pointer;
-                      transition: transform 0.2s;
-                    " id="quickSearchIcon"
-                       onmouseover="this.style.transform='translateY(-50%) scale(1.15) rotate(15deg)'"
-                       onmouseout="this.style.transform='translateY(-50%) scale(1)'">🔍</div>
                   </div>
                 </div>
 
                 <!-- 七房间网格 - 2列固定布局 -->
-                <div class="mp-content" style="padding: 24px 20px;">
+                <div class="mp-content" style="padding: 20px 20px;">
                   <div style="
                     display: grid;
                     grid-template-columns: repeat(2, 1fr);
-                    gap: 20px;
+                    gap: 16px;
                     max-width: 800px;
                     margin: 0 auto;
                   ">
@@ -959,44 +984,44 @@
                       const stats = getRoomStats(room.id);
                       return `
                         <div class="mp-card mp-fade-in" style="
-                          padding: 28px 24px;
+                          padding: 24px 20px;
                           cursor: pointer;
                           background: ${room.bgColor};
-                          backdrop-filter: blur(30px);
+                          backdrop-filter: blur(20px);
                           animation-delay: ${idx * 0.08}s;
+                          border-radius: 24px;
+                          border: 1px solid rgba(255, 255, 255, 0.4);
                         " data-room-id="${room.id}">
-                          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
+                          <div style="margin-bottom: 16px;">
                             <div style="
-                              width: 56px;
-                              height: 56px;
-                              background: ${room.color};
-                              border-radius: 16px;
+                              width: 48px;
+                              height: 48px;
+                              background: transparent;
                               display: flex;
                               align-items: center;
                               justify-content: center;
-                              color: white;
+                              color: ${room.color};
                               flex-shrink: 0;
+                              margin-bottom: 12px;
                             ">
-                              ${getSvgIcon(room.icon, 28)}
+                              ${getSvgIcon(room.icon, 32)}
                             </div>
-                          </div>
-                          <div style="margin-bottom: 16px;">
-                            <div style="font-size: 20px; font-weight: 700; color: ${room.textColor}; margin-bottom: 8px; letter-spacing: 0.3px;">
+                            <div style="font-size: 22px; font-weight: 700; color: ${room.textColor}; margin-bottom: 8px;">
                               ${room.name}
                             </div>
-                            <div style="font-size: 13px; color: #8B7E77; line-height: 1.6; opacity: 0.8;">
+                            <div style="font-size: 13px; color: rgba(107, 95, 88, 0.5); line-height: 1.5;">
                               ${room.desc}
                             </div>
                           </div>
                           <div style="
                             display: flex;
                             align-items: baseline;
-                            gap: 6px;
+                            gap: 4px;
                           ">
-                            <div style="font-size: 36px; font-weight: 700; color: ${room.textColor}; line-height: 1;">
+                            <div style="font-size: 42px; font-weight: 700; color: ${room.textColor}; line-height: 1;">
                               ${stats.count}
                             </div>
-                            <div style="font-size: 16px; color: ${room.textColor}; opacity: 0.6;">
+                            <div style="font-size: 18px; color: rgba(107, 95, 88, 0.4); font-weight: 500;">
                               ${stats.capacity === '∞' ? '条' : `/ ${stats.capacity}`}
                             </div>
                           </div>
