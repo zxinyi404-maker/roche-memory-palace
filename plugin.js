@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v7.3.0
-// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联 + 现代化UI重构
+// Roche 记忆宫殿插件 v7.3.1
+// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联 + 现代化UI重构 + 真实角色头像
 
 (function() {
   'use strict';
@@ -364,6 +364,17 @@
 
           async function loadConversations() {
             conversations = await roche.conversation.list();
+            // 为每个会话加载角色信息
+            for (const conv of conversations) {
+              if (conv.characterId) {
+                try {
+                  const character = await roche.character.get(conv.characterId);
+                  conv._character = character;
+                } catch (e) {
+                  console.log('[记忆宫殿] 获取角色信息失败:', e);
+                }
+              }
+            }
           }
 
           async function loadMemories() {
@@ -731,7 +742,10 @@
                       <div class="mp-empty-icon">💭</div>
                       <div class="mp-empty-text">暂无会话<br/>开始对话后即可创建记忆宫殿</div>
                     </div>
-                  ` : conversations.map((conv, idx) => `
+                  ` : conversations.map((conv, idx) => {
+                    const charAvatar = conv._character?.avatar || '';
+                    const charName = conv._character?.name || conv.name || conv.title || conv.handle || '未命名会话';
+                    return `
                     <div class="mp-card mp-fade-in" style="
                       padding: 32px;
                       margin-bottom: 20px;
@@ -747,19 +761,21 @@
                           width: 64px;
                           height: 64px;
                           border-radius: 20px;
+                          ${charAvatar ? `background: url('${charAvatar}') center/cover;` : `
                           background: linear-gradient(135deg, #B8A1C9, #D4BFE0);
                           display: flex;
                           align-items: center;
                           justify-content: center;
-                          font-size: 32px;
+                          font-size: 32px;`}
                           flex-shrink: 0;
                           box-shadow: 0 4px 16px rgba(184, 161, 193, 0.25);
+                          overflow: hidden;
                         ">
-                          🧠
+                          ${charAvatar ? '' : '🧠'}
                         </div>
                         <div style="flex: 1;">
                           <div style="font-size: 22px; font-weight: 700; color: #6B4C7D; letter-spacing: 0.3px; margin-bottom: 8px;">
-                            ${conv.name || conv.title || conv.handle || '未命名会话'}
+                            ${charName}
                           </div>
                           <div style="
                             display: inline-flex;
@@ -820,7 +836,7 @@
                         </div>
                       </div>
                     </div>
-                  `).join('')}
+                  `}).join('')}
                 </div>
               </div>
             `;
