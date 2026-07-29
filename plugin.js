@@ -364,51 +364,39 @@
 
           async function loadConversations() {
             conversations = await roche.conversation.list();
-            console.log('[记忆宫殿] ===== 开始加载会话 =====');
             console.log('[记忆宫殿] 会话总数:', conversations.length);
 
-            // 输出第一个会话的所有字段
-            if (conversations.length > 0) {
-              const firstConv = conversations[0];
-              console.log('[记忆宫殿] 第一个会话的所有字段名:', Object.keys(firstConv));
-              console.log('[记忆宫殿] 第一个会话完整对象:', JSON.stringify(firstConv, null, 2));
-            }
-
-            // 为每个会话加载角色信息
+            // 为每个会话尝试获取角色信息
             for (const conv of conversations) {
-              console.log('[记忆宫殿] -----');
-              console.log('[记忆宫殿] 会话名称:', conv.name || conv.title || conv.handle);
-
-              // 尝试所有可能的字段
-              const possibleAvatarFields = [
-                'avatar', 'avatarUrl', 'image', 'imageUrl', 'icon', 'iconUrl',
-                'characterAvatar', 'characterImage', 'profileImage', 'profilePicture',
-                'picture', 'photo', 'thumbnail'
-              ];
-
-              for (const field of possibleAvatarFields) {
-                if (conv[field]) {
-                  console.log(`[记忆宫殿] 找到字段 ${field}:`, conv[field]);
-                  conv._avatarUrl = conv[field];
-                  break;
-                }
-              }
-
-              // 如果 conversation 里有嵌套的 character 对象
-              if (conv.character) {
-                console.log('[记忆宫殿] character对象字段:', Object.keys(conv.character));
-                for (const field of possibleAvatarFields) {
-                  if (conv.character[field]) {
-                    console.log(`[记忆宫殿] 在character里找到 ${field}:`, conv.character[field]);
-                    conv._avatarUrl = conv.character[field];
-                    break;
+              try {
+                // 尝试通过 persona API 获取
+                if (conv.id) {
+                  try {
+                    const persona = await roche.persona.get(conv.id);
+                    if (persona?.avatar) {
+                      conv._avatarUrl = persona.avatar;
+                      console.log('[记忆宫殿] 通过 persona 获取头像:', conv.name, persona.avatar);
+                    }
+                  } catch (e) {
+                    // persona API 可能不存在
                   }
                 }
-              }
 
-              console.log('[记忆宫殿] 最终头像URL:', conv._avatarUrl || '未找到');
+                // 如果还没有头像，检查 conversation 本身的字段
+                if (!conv._avatarUrl) {
+                  const possibleFields = ['avatar', 'avatarUrl', 'image', 'imageUrl', 'icon', 'picture'];
+                  for (const field of possibleFields) {
+                    if (conv[field]) {
+                      conv._avatarUrl = conv[field];
+                      console.log(`[记忆宫殿] 在 conversation.${field} 找到头像:`, conv.name, conv[field]);
+                      break;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('[记忆宫殿] 获取头像失败:', conv.name, e);
+              }
             }
-            console.log('[记忆宫殿] ===== 加载完成 =====');
           }
 
           async function loadMemories() {
@@ -777,8 +765,8 @@
                       <div class="mp-empty-text">暂无会话<br/>开始对话后即可创建记忆宫殿</div>
                     </div>
                   ` : conversations.map((conv, idx) => {
-                    const charAvatar = conv._character?.avatar || conv._character?.avatarUrl || '';
-                    const charName = conv._character?.name || conv.name || conv.title || conv.handle || '未命名会话';
+                    const charAvatar = conv._avatarUrl || '';
+                    const charName = conv.name || conv.title || conv.handle || '未命名会话';
                     return `
                     <div class="mp-card mp-fade-in" style="
                       padding: 28px;
@@ -931,7 +919,7 @@
           function renderMemoryPalace() {
             const selectedConv = conversations.find(c => c.id === selectedConvId);
             const convName = selectedConv ? (selectedConv.name || selectedConv.title || selectedConv.handle) : '未命名';
-            const charAvatar = selectedConv?._character?.avatar || '';
+            const charAvatar = selectedConv?._avatarUrl || '';
             const totalMemories = memories.length;
             const wishCount = getMemoriesByRoom('windowSill').length;
 
