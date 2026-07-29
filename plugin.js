@@ -364,30 +364,37 @@
 
           async function loadConversations() {
             conversations = await roche.conversation.list();
+            console.log('[记忆宫殿] ===== 开始加载会话 =====');
+            console.log('[记忆宫殿] 会话总数:', conversations.length);
+
             // 为每个会话加载角色信息
             for (const conv of conversations) {
+              console.log('[记忆宫殿] 会话对象完整结构:', conv);
+              console.log('[记忆宫殿] 会话 ID:', conv.id);
+              console.log('[记忆宫殿] 会话名称:', conv.name || conv.title || conv.handle);
+              console.log('[记忆宫殿] characterId:', conv.characterId);
+              console.log('[记忆宫殿] character对象:', conv.character);
+
               try {
                 // 尝试多种方式获取角色信息
                 if (conv.characterId) {
                   const character = await roche.character.get(conv.characterId);
                   conv._character = character;
-                  console.log('[记忆宫殿] 角色信息:', {
-                    convId: conv.id,
-                    characterId: conv.characterId,
-                    character: character,
-                    avatar: character?.avatar,
-                    avatarUrl: character?.avatarUrl
-                  });
+                  console.log('[记忆宫殿] 通过 characterId 获取到角色:', character);
                 } else if (conv.character) {
                   // 有些会话可能直接包含角色对象
                   conv._character = conv.character;
                   console.log('[记忆宫殿] 会话自带角色:', conv.character);
                 }
+
+                // 输出最终的头像地址
+                const avatar = conv._character?.avatar || conv._character?.avatarUrl || conv._character?.image || '';
+                console.log('[记忆宫殿] 最终头像地址:', avatar);
               } catch (e) {
-                console.log('[记忆宫殿] 获取角色信息失败:', e);
+                console.error('[记忆宫殿] 获取角色信息失败:', e);
               }
             }
-            console.log('[记忆宫殿] 所有会话:', conversations);
+            console.log('[记忆宫殿] ===== 加载完成 =====');
           }
 
           async function loadMemories() {
