@@ -1732,180 +1732,88 @@
             // 从记忆中提取重要事件（importance >= 7）
             const eventMemories = memories.filter(m => m.importance >= 7);
 
-            // 按时间分组
-            const eventsByDate = {};
-            eventMemories.forEach(mem => {
-              const date = new Date(mem.timestamp).toLocaleDateString('zh-CN', {
-                year: 'numeric',
-                month: 'long'
-              });
-              if (!eventsByDate[date]) {
-                eventsByDate[date] = [];
-              }
-              eventsByDate[date].push(mem);
-            });
-
-            const sortedDates = Object.keys(eventsByDate).sort((a, b) => {
-              const dateA = eventsByDate[a][0].timestamp;
-              const dateB = eventsByDate[b][0].timestamp;
-              return dateB - dateA;
-            });
-
             container.innerHTML = GLOBAL_STYLES + `
               <div class="mp-app">
-                <div class="mp-header" style="padding: 20px 24px;">
-                  <div style="display: flex; align-items: center; gap: 16px;">
-                    <div style="font-size: 20px; color: #8B7E77; cursor: pointer;" id="backBtn">←</div>
-                    <div style="flex: 1;">
-                      <div style="font-size: 18px; font-weight: 600; color: #8B7E77; margin-bottom: 4px;">
-                        事件盒 (${eventMemories.length})
-                      </div>
-                      <div style="font-size: 13px; color: #A89A94;">
-                        重要事件时间线
-                      </div>
+                <!-- 头部 -->
+                <div class="mp-header" style="padding: 20px 24px 16px; background: white;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                    <div style="font-size: 16px; color: rgba(107, 95, 88, 0.6); cursor: pointer; font-weight: 500;" id="backBtn">
+                      ← 返回宫殿
                     </div>
+                    <div style="font-size: 14px; color: rgba(107, 95, 88, 0.5);">
+                      ${eventMemories.length} 个事件盒
+                    </div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                    <div style="font-size: 14px; color: rgba(107, 95, 88, 0.6);">📦</div>
+                    <div style="font-size: 24px; font-weight: 700; color: #3D3633;">事件盒</div>
+                  </div>
+                  <div style="font-size: 13px; color: rgba(107, 95, 88, 0.5); line-height: 1.6;">
+                    按同一事件自动聚合的记忆，点击展开可查看整合回忆、活跃点数与已归档节点
                   </div>
                 </div>
 
+                <!-- 内容区 -->
                 <div class="mp-content" style="padding: 20px 16px;">
                   ${eventMemories.length === 0 ? `
-                    <div class="mp-empty">
-                      <div class="mp-empty-icon">📦</div>
-                      <div class="mp-empty-text">
-                        暂无重要事件<br/>
-                        重要性≥7的记忆会自动归档到这里
-                      </div>
+                    <div style="
+                      text-align: center;
+                      padding: 60px 20px;
+                      color: rgba(107, 95, 88, 0.4);
+                      font-size: 14px;
+                      line-height: 2;
+                    ">
+                      还没有事件盒 —— 对话中出现关联事件或主动绑定<br/>
+                      关联时会自动创建
                     </div>
                   ` : `
                     <div style="max-width: 800px; margin: 0 auto;">
-                      ${sortedDates.map((date, dateIdx) => {
-                        const dateEvents = eventsByDate[date];
+                      ${eventMemories.map((mem, idx) => {
+                        const room = SEVEN_ROOMS[mem.room];
+                        const emotionInfo = EMOTION_TYPES[mem.emotion] || { icon: '😐', name: 'neutral', color: '#9E9E9E' };
+                        const dateStr = new Date(mem.timestamp).toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '/');
+
                         return `
-                          <div class="mp-fade-in" style="
-                            margin-bottom: 32px;
-                            animation-delay: ${dateIdx * 0.1}s;
-                          ">
-                            <!-- 日期标题 -->
-                            <div style="
-                              display: flex;
-                              align-items: center;
-                              gap: 12px;
-                              margin-bottom: 16px;
-                            ">
-                              <div style="
-                                font-size: 16px;
-                                font-weight: 600;
-                                color: #8B7E77;
-                                padding: 8px 16px;
-                                background: white;
-                                border-radius: 20px;
-                                box-shadow: 0 2px 8px rgba(139, 126, 119, 0.08);
-                              ">
-                                📅 ${date}
+                          <div class="mp-card mp-fade-in" style="
+                            padding: 20px;
+                            margin-bottom: 16px;
+                            cursor: pointer;
+                            animation-delay: ${Math.min(idx * 0.03, 0.5)}s;
+                            background: white;
+                            border-radius: 16px;
+                            border: 1px solid rgba(184, 161, 193, 0.15);
+                          " data-mem-id="${mem.id}">
+                            <!-- 记忆内容 -->
+                            <div style="font-size: 15px; color: #3D3633; line-height: 1.7; margin-bottom: 14px;">
+                              ${mem.text}
+                            </div>
+
+                            <!-- 底部元数据 -->
+                            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; color: rgba(107, 95, 88, 0.6); margin-bottom: 12px;">
+                              <div style="display: flex; align-items: center; gap: 4px;">
+                                <span>${getSvgIcon(room.icon, 14)}</span>
+                                <span>${room.name}</span>
                               </div>
-                              <div style="
-                                flex: 1;
-                                height: 2px;
-                                background: linear-gradient(90deg, rgba(184, 161, 193, 0.3), transparent);
-                              "></div>
+                              <div>⭐ ${mem.importance}</div>
+                              <div>${emotionInfo.name}</div>
+                              <div>${dateStr}</div>
                             </div>
 
-                            <!-- 事件列表 -->
-                            <div style="display: flex; flex-direction: column; gap: 12px;">
-                              ${dateEvents.map((mem, idx) => {
-                                const retention = calculateRetention(mem);
-                                const emotionInfo = EMOTION_TYPES[mem.emotion];
-                                const room = SEVEN_ROOMS[mem.room];
-                                const timeAgo = getTimeAgo(mem.timestamp);
-                                const retentionColor = retention > 0.7 ? '#4CAF50' : retention > 0.3 ? '#FF9800' : '#F44336';
-
-                                return `
-                                  <div class="mp-card" style="
-                                    padding: 20px;
-                                    cursor: pointer;
-                                    border-left: 4px solid ${room.color};
-                                  " data-event-id="${mem.id}">
-                                    <div style="display: flex; gap: 16px;">
-                                      <div style="
-                                        width: 56px;
-                                        height: 56px;
-                                        background: ${emotionInfo.color};
-                                        border-radius: 14px;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        font-size: 28px;
-                                        flex-shrink: 0;
-                                      ">
-                                        ${emotionInfo.icon}
-                                      </div>
-                                      <div style="flex: 1; min-width: 0;">
-                                        <div style="
-                                          display: flex;
-                                          align-items: center;
-                                          gap: 8px;
-                                          margin-bottom: 8px;
-                                        ">
-                                          <span style="
-                                            padding: 4px 10px;
-                                            background: ${room.color};
-                                            color: white;
-                                            border-radius: 8px;
-                                            font-size: 11px;
-                                            font-weight: 600;
-                                          ">
-                                            ${room.icon} ${room.name}
-                                          </span>
-                                          <span style="font-size: 12px; color: #B8A1C9;">
-                                            ${timeAgo}
-                                          </span>
-                                          <span style="
-                                            padding: 4px 10px;
-                                            background: #FFD7A8;
-                                            color: #FF9800;
-                                            border-radius: 8px;
-                                            font-size: 11px;
-                                            font-weight: 600;
-                                          ">
-                                            ⭐ 重要性 ${mem.importance}
-                                          </span>
-                                        </div>
-                                        <div style="
-                                          font-size: 15px;
-                                          color: #8B7E77;
-                                          line-height: 1.6;
-                                          margin-bottom: 12px;
-                                        ">
-                                          ${mem.text}
-                                        </div>
-                                        <div style="
-                                          display: flex;
-                                          align-items: center;
-                                          justify-content: space-between;
-                                        ">
-                                          <span style="
-                                            padding: 4px 10px;
-                                            background: ${emotionInfo.color};
-                                            color: white;
-                                            border-radius: 6px;
-                                            font-size: 11px;
-                                          ">
-                                            ${emotionInfo.icon} ${emotionInfo.name}
-                                          </span>
-                                          <span style="
-                                            font-size: 12px;
-                                            font-weight: 600;
-                                            color: ${retentionColor};
-                                          ">
-                                            💪 ${(retention * 100).toFixed(0)}%
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                `;
-                              }).join('')}
-                            </div>
+                            <!-- 标签 -->
+                            ${mem.tags && mem.tags.length > 0 ? `
+                              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                ${mem.tags.map(tag => `
+                                  <span style="
+                                    padding: 4px 12px;
+                                    background: rgba(139, 107, 157, 0.1);
+                                    color: #8B6B9D;
+                                    border-radius: 12px;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                  ">${tag}</span>
+                                `).join('')}
+                              </div>
+                            ` : ''}
                           </div>
                         `;
                       }).join('')}
@@ -1915,25 +1823,27 @@
               </div>
             `;
 
+            // 绑定事件
             container.querySelector('#backBtn').onclick = () => {
               currentView = 'memoryPalace';
               render();
             };
 
-            container.querySelectorAll('[data-event-id]').forEach(card => {
+            // 事件卡片点击
+            container.querySelectorAll('[data-mem-id]').forEach(card => {
               card.onclick = async () => {
-                const eventId = card.dataset.eventId;
-                const mem = memories.find(m => m.id === eventId);
+                const memId = card.dataset.memId;
+                const mem = memories.find(m => m.id === memId);
                 if (mem) {
+                  mem.accessCount = (mem.accessCount || 0) + 1;
                   reinforceMemory(mem);
                   scheduleSave();
-                  roche.ui.toast('✨ 重要记忆已巩固！');
+                  roche.ui.showToast('✨ 事件已查看！');
                   render();
                 }
               };
             });
           }
-
           // ============ 6. 搜索页 ============
 
           function renderSearch() {
