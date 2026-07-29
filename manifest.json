@@ -1,10 +1,10 @@
 {
   "id": "memory-palace",
   "name": "记忆宫殿",
-  "version": "7.5.0",
-  "description": "🎯 下拉切换角色 + 圆形设计 | 完全复刻参考图的圆润风格",
+  "version": "7.6.0",
+  "description": "📋 全部记忆页重构 | 完全复刻参考图 + 排序功能 + 灯泡图标",
   "author": "zxinyi404",
-  "entry": "https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/plugin.js?t=1785305000",
+  "entry": "https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/plugin.js?t=1785306000",
   "hash": "",
   "permissions": [
     "persona:read",

@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v7.5.0
-// 完整功能 + 混合搜索 + iOS开关 + 真实头像 + 下拉切换角色 + 圆形设计
+// Roche 记忆宫殿插件 v7.6.0
+// 完整功能 + iOS开关 + 真实头像 + 下拉切换 + 全部记忆页重构
 
 (function() {
   'use strict';
@@ -362,6 +362,8 @@
           let selectedRoomId = null;
           let searchQuery = '';
           let saveTimer = null; // 延迟保存定时器
+          let sortBy = 'time'; // 排序方式：time | importance
+          let sortOrder = 'desc'; // 排序方向：desc | asc
 
           async function loadConversations() {
             conversations = await roche.conversation.list();
@@ -1558,31 +1560,80 @@
           // ============ 4. 全部记忆页 ============
 
           function renderAllMemories() {
+            // 排序逻辑
+            let sortedMemories = [...memories];
+            if (sortBy === 'time') {
+              sortedMemories.sort((a, b) => sortOrder === 'desc' ? b.timestamp - a.timestamp : a.timestamp - b.timestamp);
+            } else if (sortBy === 'importance') {
+              sortedMemories.sort((a, b) => sortOrder === 'desc' ? b.importance - a.importance : a.importance - b.importance);
+            }
+
             container.innerHTML = GLOBAL_STYLES + `
               <div class="mp-app">
-                <div class="mp-header" style="padding: 20px 24px;">
-                  <div style="display: flex; align-items: center; gap: 16px;">
-                    <div style="font-size: 20px; color: #8B7E77; cursor: pointer;" id="backBtn">←</div>
-                    <div style="font-size: 18px; font-weight: 600; color: #8B7E77;">
-                      全部记忆 (${memories.length})
+                <!-- 头部 -->
+                <div class="mp-header" style="padding: 20px 24px 16px; background: white;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                    <div style="font-size: 16px; color: rgba(107, 95, 88, 0.6); cursor: pointer; font-weight: 500;" id="backBtn">
+                      ← 返回宫殿
                     </div>
+                    <div style="font-size: 14px; color: rgba(107, 95, 88, 0.5);">
+                      ${memories.length} 条记忆
+                    </div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                    <div style="font-size: 14px; color: rgba(107, 95, 88, 0.6);">☰</div>
+                    <div style="font-size: 24px; font-weight: 700; color: #3D3633;">全部记忆</div>
+                  </div>
+
+                  <!-- 排序按钮 -->
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="font-size: 14px; color: rgba(107, 95, 88, 0.6); margin-right: 4px;">排序：</div>
+                    <div class="sort-btn" data-sort="time" style="
+                      padding: 8px 16px;
+                      border: 2px solid ${sortBy === 'time' ? '#8B6B9D' : 'rgba(184, 161, 193, 0.3)'};
+                      color: ${sortBy === 'time' ? '#8B6B9D' : 'rgba(107, 95, 88, 0.6)'};
+                      border-radius: 20px;
+                      font-size: 14px;
+                      font-weight: 600;
+                      cursor: pointer;
+                      transition: all 0.2s;
+                    ">时间</div>
+                    <div class="sort-btn" data-sort="importance" style="
+                      padding: 8px 16px;
+                      border: 2px solid ${sortBy === 'importance' ? '#8B6B9D' : 'rgba(184, 161, 193, 0.3)'};
+                      color: ${sortBy === 'importance' ? '#8B6B9D' : 'rgba(107, 95, 88, 0.6)'};
+                      border-radius: 20px;
+                      font-size: 14px;
+                      font-weight: 600;
+                      cursor: pointer;
+                      transition: all 0.2s;
+                    ">重要性</div>
+                    <div class="sort-order-btn" style="
+                      padding: 8px 16px;
+                      border: 2px solid rgba(184, 161, 193, 0.3);
+                      color: rgba(107, 95, 88, 0.6);
+                      border-radius: 20px;
+                      font-size: 14px;
+                      font-weight: 600;
+                      cursor: pointer;
+                      transition: all 0.2s;
+                    ">${sortOrder === 'desc' ? '↓' : '↑'} ${sortOrder === 'desc' ? '降序' : '升序'}</div>
                   </div>
                 </div>
 
+                <!-- 记忆列表 -->
                 <div class="mp-content" style="padding: 20px 16px;">
-                  ${memories.length === 0 ? `
+                  ${sortedMemories.length === 0 ? `
                     <div class="mp-empty">
                       <div class="mp-empty-icon">📭</div>
                       <div class="mp-empty-text">暂无记忆</div>
                     </div>
                   ` : `
                     <div style="max-width: 800px; margin: 0 auto;">
-                      ${memories.map((mem, idx) => {
-                        const retention = calculateRetention(mem);
-                        const emotionInfo = EMOTION_TYPES[mem.emotion];
+                      ${sortedMemories.map((mem, idx) => {
                         const room = SEVEN_ROOMS[mem.room];
-                        const timeAgo = getTimeAgo(mem.timestamp);
-                        const retentionColor = retention > 0.7 ? '#4CAF50' : retention > 0.3 ? '#FF9800' : '#F44336';
+                        const emotionInfo = EMOTION_TYPES[mem.emotion] || { icon: '😐', name: 'neutral', color: '#9E9E9E' };
+                        const dateStr = new Date(mem.timestamp).toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '/');
 
                         return `
                           <div class="mp-card mp-fade-in" style="
@@ -1590,43 +1641,42 @@
                             margin-bottom: 16px;
                             cursor: pointer;
                             animation-delay: ${Math.min(idx * 0.03, 0.5)}s;
+                            background: white;
+                            border-radius: 16px;
+                            border: 1px solid rgba(184, 161, 193, 0.15);
                           " data-mem-id="${mem.id}">
-                            <div style="display: flex; gap: 12px; margin-bottom: 8px;">
-                              <span style="
-                                padding: 4px 10px;
-                                background: ${room.color};
-                                color: white;
-                                border-radius: 6px;
-                                font-size: 11px;
-                                font-weight: 600;
-                              ">
-                                ${room.icon} ${room.name}
-                              </span>
-                              <span style="font-size: 12px; color: #B8A1C9;">
-                                ${timeAgo}
-                              </span>
-                            </div>
-                            <div style="font-size: 15px; color: #8B7E77; line-height: 1.6; margin-bottom: 12px;">
+                            <!-- 记忆内容 -->
+                            <div style="font-size: 15px; color: #3D3633; line-height: 1.7; margin-bottom: 14px;">
                               ${mem.text}
                             </div>
-                            <div style="display: flex; align-items: center; justify-content: space-between;">
-                              <span style="
-                                padding: 4px 10px;
-                                background: ${emotionInfo.color};
-                                color: white;
-                                border-radius: 6px;
-                                font-size: 11px;
-                              ">
-                                ${emotionInfo.icon} ${emotionInfo.name}
-                              </span>
-                              <span style="
-                                font-size: 12px;
-                                font-weight: 600;
-                                color: ${retentionColor};
-                              ">
-                                💪 ${(retention * 100).toFixed(0)}%
-                              </span>
+
+                            <!-- 底部元数据 -->
+                            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; color: rgba(107, 95, 88, 0.6); margin-bottom: 12px;">
+                              <div style="display: flex; align-items: center; gap: 4px;">
+                                <span>${getSvgIcon(room.icon, 14)}</span>
+                                <span>${room.name}</span>
+                              </div>
+                              <div>重要性: ${mem.importance}</div>
+                              <div>${emotionInfo.name}</div>
+                              <div>${dateStr}</div>
+                              <div>访问 ${mem.accessCount || 0} 次</div>
                             </div>
+
+                            <!-- 标签 -->
+                            ${mem.tags && mem.tags.length > 0 ? `
+                              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                ${mem.tags.map(tag => `
+                                  <span style="
+                                    padding: 4px 12px;
+                                    background: rgba(139, 107, 157, 0.1);
+                                    color: #8B6B9D;
+                                    border-radius: 12px;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                  ">${tag}</span>
+                                `).join('')}
+                              </div>
+                            ` : ''}
                           </div>
                         `;
                       }).join('')}
@@ -1636,19 +1686,39 @@
               </div>
             `;
 
+            // 绑定事件
             container.querySelector('#backBtn').onclick = () => {
               currentView = 'memoryPalace';
               render();
             };
 
+            // 排序按钮
+            container.querySelectorAll('.sort-btn').forEach(btn => {
+              btn.onclick = () => {
+                sortBy = btn.dataset.sort;
+                render();
+              };
+            });
+
+            // 排序方向按钮
+            const sortOrderBtn = container.querySelector('.sort-order-btn');
+            if (sortOrderBtn) {
+              sortOrderBtn.onclick = () => {
+                sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+                render();
+              };
+            }
+
+            // 记忆卡片点击
             container.querySelectorAll('[data-mem-id]').forEach(card => {
               card.onclick = async () => {
                 const memId = card.dataset.memId;
                 const mem = memories.find(m => m.id === memId);
                 if (mem) {
+                  mem.accessCount = (mem.accessCount || 0) + 1;
                   reinforceMemory(mem);
                   scheduleSave();
-                  roche.ui.toast('✨ 记忆已巩固！');
+                  roche.ui.showToast('✨ 记忆已巩固！');
                   render();
                 }
               };
