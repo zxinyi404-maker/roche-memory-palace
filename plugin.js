@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v7.3.2
-// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联 + 现代化UI重构 + 精确复刻设计图
+// Roche 记忆宫殿插件 v7.4.0
+// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联 + iOS开关 + 头像调试
 
 (function() {
   'use strict';
@@ -366,15 +366,28 @@
             conversations = await roche.conversation.list();
             // 为每个会话加载角色信息
             for (const conv of conversations) {
-              if (conv.characterId) {
-                try {
+              try {
+                // 尝试多种方式获取角色信息
+                if (conv.characterId) {
                   const character = await roche.character.get(conv.characterId);
                   conv._character = character;
-                } catch (e) {
-                  console.log('[记忆宫殿] 获取角色信息失败:', e);
+                  console.log('[记忆宫殿] 角色信息:', {
+                    convId: conv.id,
+                    characterId: conv.characterId,
+                    character: character,
+                    avatar: character?.avatar,
+                    avatarUrl: character?.avatarUrl
+                  });
+                } else if (conv.character) {
+                  // 有些会话可能直接包含角色对象
+                  conv._character = conv.character;
+                  console.log('[记忆宫殿] 会话自带角色:', conv.character);
                 }
+              } catch (e) {
+                console.log('[记忆宫殿] 获取角色信息失败:', e);
               }
             }
+            console.log('[记忆宫殿] 所有会话:', conversations);
           }
 
           async function loadMemories() {
@@ -743,25 +756,24 @@
                       <div class="mp-empty-text">暂无会话<br/>开始对话后即可创建记忆宫殿</div>
                     </div>
                   ` : conversations.map((conv, idx) => {
-                    const charAvatar = conv._character?.avatar || '';
+                    const charAvatar = conv._character?.avatar || conv._character?.avatarUrl || '';
                     const charName = conv._character?.name || conv.name || conv.title || conv.handle || '未命名会话';
                     return `
                     <div class="mp-card mp-fade-in" style="
-                      padding: 32px;
+                      padding: 28px;
                       margin-bottom: 20px;
-                      cursor: pointer;
                       animation-delay: ${idx * 0.1}s;
                       border: 2px solid;
                       border-image: linear-gradient(135deg, #B8A1C9, #E8B4D9, #B8A1C9) 1;
                       border-radius: 28px;
                       position: relative;
-                    " data-conv-id="${conv.id}">
-                      <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 24px;">
+                    ">
+                      <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
                         <div style="
                           width: 64px;
                           height: 64px;
                           border-radius: 20px;
-                          ${charAvatar ? `background: url('${charAvatar}') center/cover;` : `
+                          ${charAvatar ? `background-image: url('${charAvatar}'); background-size: cover; background-position: center;` : `
                           background: linear-gradient(135deg, #B8A1C9, #D4BFE0);
                           display: flex;
                           align-items: center;
@@ -774,65 +786,60 @@
                           ${charAvatar ? '' : '🧠'}
                         </div>
                         <div style="flex: 1;">
-                          <div style="font-size: 22px; font-weight: 700; color: #6B4C7D; letter-spacing: 0.3px; margin-bottom: 8px;">
+                          <div style="font-size: 20px; font-weight: 700; color: #3D3633; letter-spacing: 0.3px; margin-bottom: 6px;">
                             ${charName}
                           </div>
-                          <div style="
-                            display: inline-flex;
-                            padding: 6px 14px;
-                            background: linear-gradient(135deg, #E8F5E9, #D4EDD8);
-                            color: #43A047;
-                            border-radius: 20px;
-                            font-size: 12px;
-                            font-weight: 700;
-                            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.15);
-                          ">
+                          <div style="font-size: 13px; color: #8B6B9D; font-weight: 600;">
                             已就绪
                           </div>
                         </div>
                         <div style="
-                          width: 40px;
-                          height: 40px;
-                          background: linear-gradient(135deg, #B8A1C9, #D4BFE0);
-                          border-radius: 12px;
+                          width: 48px;
+                          height: 48px;
+                          background: linear-gradient(135deg, #8B6B9D, #9B7FBD);
+                          border-radius: 16px;
                           display: flex;
                           align-items: center;
                           justify-content: center;
                           color: white;
-                          font-size: 20px;
+                          font-size: 24px;
                           font-weight: 700;
-                        ">
+                          cursor: pointer;
+                          transition: all 0.3s;
+                        " class="mp-enter-btn" data-conv-id="${conv.id}">
                           →
                         </div>
                       </div>
-                      <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                        <div style="
-                          flex: 1;
-                          padding: 16px;
-                          background: rgba(184, 161, 193, 0.08);
-                          border-radius: 16px;
-                          border: 1px solid rgba(184, 161, 193, 0.15);
-                        ">
-                          <div style="font-size: 12px; color: #8B7E77; margin-bottom: 6px; font-weight: 600;">
-                            记忆宫殿
-                          </div>
-                          <div style="font-size: 11px; color: #B8A1C9; font-weight: 500;">
-                            七房间空间模型
+
+                      <!-- 记忆宫殿开关 -->
+                      <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; background: rgba(184, 161, 193, 0.08); border-radius: 16px; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                          <div style="font-size: 24px; opacity: 0.7;">🧠</div>
+                          <div>
+                            <div style="font-size: 15px; font-weight: 700; color: #3D3633; margin-bottom: 4px;">记忆宫殿</div>
+                            <div style="font-size: 12px; color: rgba(107, 95, 88, 0.6);">七房间空间模型·向量检索</div>
                           </div>
                         </div>
-                        <div style="
-                          flex: 1;
-                          padding: 16px;
-                          background: rgba(184, 230, 184, 0.08);
+                        <div class="mp-toggle" data-conv-id="${conv.id}" data-type="palace" style="
+                          width: 52px;
+                          height: 32px;
+                          background: #8B6B9D;
                           border-radius: 16px;
-                          border: 1px solid rgba(184, 230, 184, 0.15);
+                          position: relative;
+                          cursor: pointer;
+                          transition: all 0.3s;
                         ">
-                          <div style="font-size: 12px; color: #8B7E77; margin-bottom: 6px; font-weight: 600;">
-                            全自动记忆
-                          </div>
-                          <div style="font-size: 11px; color: #4A7C5F; font-weight: 500;">
-                            自动归档·水位线
-                          </div>
+                          <div style="
+                            width: 28px;
+                            height: 28px;
+                            background: white;
+                            border-radius: 14px;
+                            position: absolute;
+                            top: 2px;
+                            right: 2px;
+                            transition: all 0.3s;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                          "></div>
                         </div>
                       </div>
                     </div>
@@ -842,14 +849,60 @@
             `;
 
             container.querySelector('#exitBtn').onclick = () => roche.ui.closeApp();
-            container.querySelectorAll('[data-conv-id]').forEach(card => {
-              card.onclick = async () => {
-                selectedConvId = card.dataset.convId;
+
+            // 绑定进入按钮
+            container.querySelectorAll('.mp-enter-btn').forEach(btn => {
+              btn.onclick = async (e) => {
+                e.stopPropagation();
+                const convId = btn.dataset.convId;
+                // 检查是否开启记忆宫殿
+                const enabled = await roche.storage.get(`memoryPalaceEnabled:${convId}`);
+                if (enabled === false) {
+                  roche.ui.showToast('请先开启该角色的记忆宫殿功能');
+                  return;
+                }
+                selectedConvId = convId;
                 await loadMemories();
                 currentView = 'memoryPalace';
                 render();
               };
             });
+
+            // 绑定开关
+            container.querySelectorAll('.mp-toggle').forEach(async (toggle) => {
+              const convId = toggle.dataset.convId;
+              const type = toggle.dataset.type;
+
+              // 读取状态
+              const enabled = await roche.storage.get(`memoryPalaceEnabled:${convId}`);
+              const isOn = enabled !== false; // 默认开启
+
+              // 设置初始状态
+              updateToggleUI(toggle, isOn);
+
+              // 点击切换
+              toggle.onclick = async (e) => {
+                e.stopPropagation();
+                const currentState = await roche.storage.get(`memoryPalaceEnabled:${convId}`);
+                const newState = currentState === false ? true : false;
+                await roche.storage.set(`memoryPalaceEnabled:${convId}`, newState);
+                updateToggleUI(toggle, newState);
+                roche.ui.showToast(newState ? '已开启记忆宫殿' : '已关闭记忆宫殿');
+              };
+            });
+
+            function updateToggleUI(toggle, isOn) {
+              const knob = toggle.querySelector('div');
+              if (isOn) {
+                toggle.style.background = '#8B6B9D';
+                knob.style.right = '2px';
+                knob.style.left = 'auto';
+              } else {
+                toggle.style.background = '#D8D8D8';
+                knob.style.left = '2px';
+                knob.style.right = 'auto';
+              }
+            }
           }
 
           // ============ 2. 记忆宫殿主页（七房间概览）============
@@ -948,7 +1001,8 @@
                       transform: translateY(-50%);
                       font-size: 18px;
                       color: rgba(107, 95, 88, 0.4);
-                    ">🔍</div>
+                      cursor: pointer;
+                    " id="quickSearchIcon">🔍</div>
                     <input
                       type="text"
                       id="quickSearchInput"
