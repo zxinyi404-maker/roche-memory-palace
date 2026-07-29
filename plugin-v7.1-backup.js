@@ -12,8 +12,7 @@
       name: '客厅',
       icon: '🛋️',
       desc: '日常闲聊、近期互动',
-      color: '#F4C4C8',
-      textColor: '#8B5E5E',
+      color: '#E8B4B8',
       capacity: 200,
       decayRate: 0.8,
       brainArea: '海马体'
@@ -23,8 +22,7 @@
       name: '卧室',
       icon: '🛏️',
       desc: '亲密情感、深层羁绊',
-      color: '#D4BFE0',
-      textColor: '#6B4C7D',
+      color: '#B8A1C9',
       capacity: Infinity,
       decayRate: 0.1,
       brainArea: '新皮层'
@@ -34,8 +32,7 @@
       name: '书房',
       icon: '📚',
       desc: '工作学习、技能成长',
-      color: '#B8D4C8',
-      textColor: '#4A7C5F',
+      color: '#9FB8AD',
       capacity: Infinity,
       decayRate: 0.3,
       brainArea: '前额叶'
@@ -45,8 +42,7 @@
       name: 'User的房间',
       icon: '👤',
       desc: '用户个人信息、习惯',
-      color: '#E0D0BC',
-      textColor: '#7D6E5A',
+      color: '#C9B8A1',
       capacity: Infinity,
       decayRate: 0.2,
       brainArea: '颞顶联合区'
@@ -56,8 +52,7 @@
       name: '自我房间',
       icon: '🪞',
       desc: '角色自我认同、演变',
-      color: '#C0D4E0',
-      textColor: '#5A6E7D',
+      color: '#A8B8C9',
       capacity: Infinity,
       decayRate: 0,
       brainArea: '默认模式网络'
@@ -67,8 +62,7 @@
       name: '阁楼',
       icon: '🏚️',
       desc: '未消化的困惑、潜意识',
-      color: '#D0CCC4',
-      textColor: '#7A756D',
+      color: '#B8B5AD',
       capacity: Infinity,
       decayRate: 0,
       brainArea: '杏仁核-海马'
@@ -78,8 +72,7 @@
       name: '窗台',
       icon: '🪟',
       desc: '期盼、目标、憧憬',
-      color: '#F4E4CC',
-      textColor: '#8B7855',
+      color: '#E8D4B8',
       capacity: Infinity,
       decayRate: 0.5,
       brainArea: '多巴胺奖赏系统'
@@ -87,14 +80,14 @@
   };
 
   const EMOTION_TYPES = {
-    joy: { name: '快乐', icon: '😊', color: '#FFE4B8', textColor: '#B8860B' },
-    sadness: { name: '悲伤', icon: '😢', color: '#C8DCF0', textColor: '#4A708B' },
-    anger: { name: '愤怒', icon: '😠', color: '#F4C4C8', textColor: '#CD5C5C' },
-    fear: { name: '恐惧', icon: '😰', color: '#D8C8E8', textColor: '#8B7AC7' },
-    hurt: { name: '委屈', icon: '🥺', color: '#F0D4DC', textColor: '#CD8FAA' },
-    anxiety: { name: '焦虑', icon: '😟', color: '#D8E4C8', textColor: '#6B8E4E' },
-    warmth: { name: '温暖', icon: '🥰', color: '#FFF0DC', textColor: '#DAA520' },
-    neutral: { name: '平静', icon: '😐', color: '#E4E4E4', textColor: '#8B8B8B' }
+    joy: { name: '快乐', icon: '😊', color: '#FFD7A8' },
+    sadness: { name: '悲伤', icon: '😢', color: '#B8C9E8' },
+    anger: { name: '愤怒', icon: '😠', color: '#E8B4B8' },
+    fear: { name: '恐惧', icon: '😰', color: '#C9B8E8' },
+    hurt: { name: '委屈', icon: '🥺', color: '#E8C9D4' },
+    anxiety: { name: '焦虑', icon: '😟', color: '#C9D4B8' },
+    warmth: { name: '温暖', icon: '🥰', color: '#FFE8D4' },
+    neutral: { name: '平静', icon: '😐', color: '#D4D4D4' }
   };
 
   // ============ 算法函数 ============
@@ -447,12 +440,12 @@
                 box-sizing: border-box;
               }
 
-              /* 主容器 - 优化背景渐变 */
+              /* 主容器 */
               .mp-app {
                 width: 100%;
                 height: 100%;
-                background: linear-gradient(165deg, #FAF7F4 0%, #F0E8DF 50%, #E8DDD0 100%);
-                font-family: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                background: linear-gradient(180deg, #F5F0EB 0%, #E8DDD0 100%);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
@@ -488,124 +481,66 @@
                 background: rgba(184, 161, 193, 0.3);
               }
 
-              /* 卡片通用样式 - 增强微交互 */
+              /* 卡片通用样式 */
               .mp-card {
                 background: white;
                 border-radius: 20px;
-                box-shadow: 0 2px 12px rgba(139, 126, 119, 0.06), 0 1px 3px rgba(139, 126, 119, 0.04);
-                transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-                position: relative;
-                overflow: hidden;
-              }
-              .mp-card::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 3px;
-                background: linear-gradient(90deg, #E8B4B8, #B8A1C9, #9FB8AD);
-                opacity: 0;
-                transition: opacity 0.35s ease;
+                box-shadow: 0 2px 16px rgba(139, 126, 119, 0.08);
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
               }
               .mp-card:hover {
-                transform: translateY(-6px);
-                box-shadow: 0 12px 32px rgba(139, 126, 119, 0.14), 0 4px 8px rgba(139, 126, 119, 0.08);
-              }
-              .mp-card:hover::before {
-                opacity: 1;
+                transform: translateY(-4px);
+                box-shadow: 0 8px 24px rgba(139, 126, 119, 0.12);
               }
 
-              /* 按钮通用样式 - 增强交互 */
+              /* 按钮通用样式 */
               .mp-btn {
                 padding: 12px 24px;
                 border: none;
-                border-radius: 14px;
+                border-radius: 12px;
                 font-size: 14px;
-                font-weight: 600;
+                font-weight: 500;
                 cursor: pointer;
-                transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-                position: relative;
-                overflow: hidden;
-              }
-              .mp-btn::before {
-                content: '';
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                width: 0;
-                height: 0;
-                border-radius: 50%;
-                background: rgba(255, 255, 255, 0.3);
-                transform: translate(-50%, -50%);
-                transition: width 0.6s, height 0.6s;
-              }
-              .mp-btn:hover::before {
-                width: 300px;
-                height: 300px;
+                transition: all 0.2s;
               }
               .mp-btn-primary {
-                background: linear-gradient(135deg, #E8B4B8 0%, #C9A8B8 50%, #B8A1C9 100%);
+                background: linear-gradient(135deg, #E8B4B8, #B8A1C9);
                 color: white;
-                box-shadow: 0 2px 8px rgba(232, 180, 184, 0.25);
               }
               .mp-btn-primary:hover {
                 transform: translateY(-2px);
-                box-shadow: 0 6px 16px rgba(232, 180, 184, 0.35);
-              }
-              .mp-btn-primary:active {
-                transform: translateY(0);
+                box-shadow: 0 4px 12px rgba(232, 180, 184, 0.3);
               }
 
-              /* 空状态 - 优化颜色 */
+              /* 空状态 */
               .mp-empty {
                 text-align: center;
                 padding: 80px 20px;
-                color: #96877F;
+                color: #A89A94;
               }
               .mp-empty-icon {
                 font-size: 72px;
                 margin-bottom: 20px;
-                opacity: 0.6;
-                filter: grayscale(0.2);
+                opacity: 0.5;
               }
               .mp-empty-text {
                 font-size: 16px;
-                line-height: 1.8;
-                color: #8B7E77;
+                line-height: 1.6;
               }
 
-              /* 动画 - 增强流畅度 */
+              /* 动画 */
               @keyframes fadeIn {
                 from {
                   opacity: 0;
-                  transform: translateY(24px) scale(0.96);
+                  transform: translateY(20px);
                 }
                 to {
                   opacity: 1;
-                  transform: translateY(0) scale(1);
+                  transform: translateY(0);
                 }
               }
               .mp-fade-in {
-                animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
-              }
-
-              @keyframes shimmer {
-                0% {
-                  background-position: -1000px 0;
-                }
-                100% {
-                  background-position: 1000px 0;
-                }
-              }
-
-              @keyframes pulse {
-                0%, 100% {
-                  opacity: 1;
-                }
-                50% {
-                  opacity: 0.6;
-                }
+                animation: fadeIn 0.4s ease-out;
               }
             </style>
           `;
@@ -635,21 +570,19 @@
           function renderConversationSelect() {
             container.innerHTML = GLOBAL_STYLES + `
               <div class="mp-app">
-                <div class="mp-header" style="padding: 28px 24px;">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-                    <div style="font-size: 20px; color: #6B5F58; cursor: pointer; font-weight: 600; transition: all 0.2s;" id="exitBtn"
-                         onmouseover="this.style.color='#8B7E77'; this.style.transform='translateX(-2px)'"
-                         onmouseout="this.style.color='#6B5F58'; this.style.transform='translateX(0)'">← 退出</div>
-                    <div style="font-size: 28px; color: #B8A1C9; filter: drop-shadow(0 2px 4px rgba(184, 161, 193, 0.3));">❋</div>
+                <div class="mp-header" style="padding: 24px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="font-size: 20px; color: #8B7E77; cursor: pointer;" id="exitBtn">← 退出</div>
+                    <div style="font-size: 24px; color: #B8A1C9;">❋</div>
                   </div>
                   <div style="text-align: center;">
-                    <div style="font-size: 32px; font-weight: 800; color: #6B5F58; letter-spacing: 4px; margin-bottom: 10px; text-shadow: 0 2px 8px rgba(107, 95, 88, 0.1);">
+                    <div style="font-size: 28px; font-weight: 700; color: #8B7E77; letter-spacing: 3px; margin-bottom: 8px;">
                       MEMORY PALACE
                     </div>
-                    <div style="font-size: 24px; font-weight: 700; color: #6B5F58; margin-bottom: 14px; letter-spacing: 1px;">
+                    <div style="font-size: 22px; font-weight: 600; color: #8B7E77; margin-bottom: 12px;">
                       记忆宫殿
                     </div>
-                    <div style="font-size: 14px; color: #8B7E77; font-weight: 500; line-height: 1.6;">
+                    <div style="font-size: 14px; color: #A89A94;">
                       选择一个角色·开启Ta的七房间思维空间
                     </div>
                   </div>
@@ -663,37 +596,36 @@
                     </div>
                   ` : conversations.map((conv, idx) => `
                     <div class="mp-card mp-fade-in" style="
-                      padding: 28px;
-                      margin-bottom: 18px;
+                      padding: 24px;
+                      margin-bottom: 16px;
                       cursor: pointer;
                       animation-delay: ${idx * 0.1}s;
                     " data-conv-id="${conv.id}">
-                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
-                        <div style="font-size: 21px; font-weight: 700; color: #6B5F58; letter-spacing: 0.3px;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                        <div style="font-size: 20px; font-weight: 600; color: #8B7E77;">
                           ${conv.name || conv.title || conv.handle || '未命名会话'}
                         </div>
                         <div style="
-                          padding: 8px 16px;
-                          background: linear-gradient(135deg, #E8F5E9, #D4EDD8);
-                          color: #43A047;
-                          border-radius: 20px;
-                          font-size: 13px;
-                          font-weight: 700;
-                          box-shadow: 0 2px 8px rgba(76, 175, 80, 0.15);
+                          padding: 6px 14px;
+                          background: linear-gradient(135deg, #E8F5E9, #C8E6C9);
+                          color: #4CAF50;
+                          border-radius: 16px;
+                          font-size: 12px;
+                          font-weight: 600;
                         ">
                           已就绪
                         </div>
                       </div>
-                      <div style="font-size: 14px; color: #8B7E77; margin-bottom: 10px; font-weight: 600;">
+                      <div style="font-size: 14px; color: #A89A94; margin-bottom: 8px;">
                         记忆宫殿
                       </div>
-                      <div style="font-size: 13px; color: #B8A1C9; margin-bottom: 14px; font-weight: 500;">
+                      <div style="font-size: 13px; color: #B8A1C9; margin-bottom: 12px;">
                         七房间空间模型·向量检索
                       </div>
-                      <div style="font-size: 14px; color: #8B7E77; margin-bottom: 10px; font-weight: 600;">
+                      <div style="font-size: 14px; color: #A89A94; margin-bottom: 8px;">
                         全自动记忆
                       </div>
-                      <div style="font-size: 13px; color: #9FB8AD; font-weight: 500;">
+                      <div style="font-size: 13px; color: #9FB8AD;">
                         自动归档·推水位线·隐藏已总结
                       </div>
                     </div>
@@ -724,17 +656,15 @@
             container.innerHTML = GLOBAL_STYLES + `
               <div class="mp-app">
                 <!-- 头部 -->
-                <div class="mp-header" style="padding: 22px 24px;">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-                    <div style="font-size: 20px; color: #6B5F58; cursor: pointer; font-weight: 600; transition: all 0.2s;" id="backBtn"
-                         onmouseover="this.style.color='#8B7E77'; this.style.transform='translateX(-2px)'"
-                         onmouseout="this.style.color='#6B5F58'; this.style.transform='translateX(0)'">← 返回</div>
-                    <div style="font-size: 19px; font-weight: 700; color: #6B5F58; text-align: center; flex: 1; letter-spacing: 0.5px;">
+                <div class="mp-header" style="padding: 20px 24px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <div style="font-size: 20px; color: #8B7E77; cursor: pointer;" id="backBtn">← 返回</div>
+                    <div style="font-size: 18px; font-weight: 600; color: #8B7E77; text-align: center; flex: 1;">
                       ${convName}的记忆宫殿
                     </div>
-                    <div style="font-size: 20px; color: #6B5F58; width: 64px;"></div>
+                    <div style="font-size: 20px; color: #8B7E77; width: 32px;"></div>
                   </div>
-                  <div style="text-align: center; font-size: 13px; color: #8B7E77; font-weight: 500;">
+                  <div style="text-align: center; font-size: 13px; color: #A89A94;">
                     ${totalMemories}条记忆 · 0个事件盒 · ${wishCount}个期盼
                   </div>
                 </div>
@@ -748,20 +678,18 @@
                 ">
                   <div style="display: flex; gap: 12px; overflow-x: auto; margin-bottom: 16px;">
                     <div class="mp-btn" style="
-                      background: linear-gradient(135deg, rgba(244, 196, 200, 0.15), rgba(232, 180, 184, 0.08));
-                      color: #6B5F58;
-                      border: 1.5px solid rgba(244, 196, 200, 0.4);
+                      background: rgba(232, 180, 184, 0.1);
+                      color: #8B7E77;
+                      border: 1px solid rgba(232, 180, 184, 0.3);
                       white-space: nowrap;
-                      font-weight: 600;
                     " id="viewAllBtn">
                       📋 查看全部记忆
                     </div>
                     <div class="mp-btn" style="
-                      background: linear-gradient(135deg, rgba(184, 212, 200, 0.15), rgba(159, 184, 173, 0.08));
-                      color: #6B5F58;
-                      border: 1.5px solid rgba(184, 212, 200, 0.4);
+                      background: rgba(159, 184, 173, 0.1);
+                      color: #8B7E77;
+                      border: 1px solid rgba(159, 184, 173, 0.3);
                       white-space: nowrap;
-                      font-weight: 600;
                     " id="viewEventsBtn">
                       📦 查看事件盒
                     </div>
@@ -775,31 +703,25 @@
                       placeholder="搜索记忆（关键词、标签、情绪...）"
                       style="
                         width: 100%;
-                        padding: 14px 50px 14px 20px;
-                        border: 2px solid rgba(184, 161, 193, 0.25);
-                        border-radius: 16px;
+                        padding: 12px 44px 12px 16px;
+                        border: 2px solid rgba(184, 161, 193, 0.2);
+                        border-radius: 12px;
                         font-size: 14px;
-                        color: #6B5F58;
+                        color: #8B7E77;
                         background: white;
                         outline: none;
-                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                        box-shadow: 0 2px 8px rgba(184, 161, 193, 0.08);
+                        transition: all 0.2s;
                       "
-                      onfocus="this.style.borderColor='rgba(184, 161, 193, 0.5)'; this.style.boxShadow='0 4px 16px rgba(184, 161, 193, 0.16)'"
-                      onblur="this.style.borderColor='rgba(184, 161, 193, 0.25)'; this.style.boxShadow='0 2px 8px rgba(184, 161, 193, 0.08)'"
                     />
                     <div style="
                       position: absolute;
-                      right: 16px;
+                      right: 14px;
                       top: 50%;
                       transform: translateY(-50%);
-                      font-size: 20px;
+                      font-size: 18px;
                       color: #B8A1C9;
                       cursor: pointer;
-                      transition: transform 0.2s;
-                    " id="quickSearchIcon"
-                       onmouseover="this.style.transform='translateY(-50%) scale(1.1)'"
-                       onmouseout="this.style.transform='translateY(-50%) scale(1)'">🔍</div>
+                    " id="quickSearchIcon">🔍</div>
                   </div>
                 </div>
 
@@ -823,24 +745,23 @@
                         " data-room-id="${room.id}">
                           <div style="display: flex; align-items: flex-start; gap: 16px; margin-bottom: 16px;">
                             <div style="
-                              width: 60px;
-                              height: 60px;
-                              background: linear-gradient(135deg, ${room.color}, ${room.color}dd);
-                              border-radius: 18px;
+                              width: 56px;
+                              height: 56px;
+                              background: ${room.color};
+                              border-radius: 16px;
                               display: flex;
                               align-items: center;
                               justify-content: center;
-                              font-size: 30px;
+                              font-size: 28px;
                               flex-shrink: 0;
-                              box-shadow: 0 4px 12px ${room.color}40;
                             ">
                               ${room.icon}
                             </div>
                             <div style="flex: 1; min-width: 0;">
-                              <div style="font-size: 18px; font-weight: 700; color: #6B5F58; margin-bottom: 8px; letter-spacing: 0.3px;">
+                              <div style="font-size: 18px; font-weight: 600; color: #8B7E77; margin-bottom: 6px;">
                                 ${room.name}
                               </div>
-                              <div style="font-size: 13px; color: #8B7E77; line-height: 1.6;">
+                              <div style="font-size: 13px; color: #A89A94; line-height: 1.5;">
                                 ${room.desc}
                               </div>
                             </div>
@@ -849,15 +770,14 @@
                             display: flex;
                             align-items: center;
                             justify-content: space-between;
-                            padding: 14px 18px;
-                            background: linear-gradient(135deg, ${room.color}15, ${room.color}08);
-                            border-radius: 14px;
-                            border: 1px solid ${room.color}30;
+                            padding: 12px 16px;
+                            background: rgba(245, 240, 235, 0.6);
+                            border-radius: 12px;
                           ">
-                            <div style="font-size: 12px; color: ${room.textColor}; font-weight: 500;">
+                            <div style="font-size: 12px; color: #A89A94;">
                               ${room.brainArea}
                             </div>
-                            <div style="font-size: 16px; font-weight: 700; color: ${room.textColor};">
+                            <div style="font-size: 15px; font-weight: 600; color: ${room.color};">
                               ${stats.display}
                             </div>
                           </div>
