@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v8.0.0
-// 🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查
+// Roche 记忆宫殿插件 v8.0.1
+// 🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查 | 美化同步按钮
 
 (function() {
   'use strict';
@@ -348,7 +348,7 @@
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '8.0.0',
+    version: '8.0.1',
     apps: [
       {
         id: 'memory-palace-home',
@@ -1068,20 +1068,48 @@
                       <span>查看事件盒</span>
                     </div>
                     <div class="mp-btn" style="
-                      background: linear-gradient(135deg, #E8B4B8, #B8A1C9);
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
                       color: white;
                       border: none;
                       white-space: nowrap;
-                      font-weight: 600;
-                      border-radius: 20px;
-                      padding: 12px 20px;
-                      box-shadow: 0 2px 8px rgba(184, 161, 193, 0.12);
+                      font-weight: 700;
+                      border-radius: 24px;
+                      padding: 14px 24px;
+                      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4), 0 2px 8px rgba(118, 75, 162, 0.3);
                       display: flex;
                       align-items: center;
-                      gap: 6px;
-                    " id="syncToRocheBtn">
-                      <span style="font-size: 16px;">🔄</span>
-                      <span>同步到 Roche</span>
+                      gap: 8px;
+                      position: relative;
+                      overflow: hidden;
+                      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                      border: 2px solid rgba(255, 255, 255, 0.3);
+                    " id="syncToRocheBtn"
+                    onmouseover="
+                      this.style.transform='translateY(-2px) scale(1.02)';
+                      this.style.boxShadow='0 8px 25px rgba(102, 126, 234, 0.6), 0 4px 12px rgba(118, 75, 162, 0.4)';
+                    "
+                    onmouseout="
+                      this.style.transform='translateY(0) scale(1)';
+                      this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4), 0 2px 8px rgba(118, 75, 162, 0.3)';
+                    "
+                    onmousedown="this.style.transform='translateY(0) scale(0.98)'"
+                    onmouseup="this.style.transform='translateY(-2px) scale(1.02)'">
+                      <span style="
+                        font-size: 18px;
+                        animation: rotate 2s linear infinite;
+                        display: inline-block;
+                      ">🔄</span>
+                      <span style="
+                        font-size: 14px;
+                        letter-spacing: 0.5px;
+                        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+                      ">同步到 Roche</span>
+                      <style>
+                        @keyframes rotate {
+                          from { transform: rotate(0deg); }
+                          to { transform: rotate(360deg); }
+                        }
+                      </style>
                     </div>
                   </div>
 

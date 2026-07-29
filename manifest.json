@@ -1,7 +1,7 @@
 {
   "id": "memory-palace",
   "name": "记忆宫殿",
-  "version": "8.0.0",
+  "version": "8.0.1",
   "description": "🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查 + 翻旧账效果",
   "author": "zxinyi404",
   "entry": "https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/plugin.js?t=1785306000",
