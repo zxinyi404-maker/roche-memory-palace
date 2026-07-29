@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v7.4.0
-// 完整功能 + 混合搜索 + 扩散激活 + 情绪启动 + 记忆关联 + iOS开关 + 头像调试
+// Roche 记忆宫殿插件 v7.5.0
+// 完整功能 + 混合搜索 + iOS开关 + 真实头像 + 下拉切换角色 + 圆形设计
 
 (function() {
   'use strict';
@@ -769,33 +769,33 @@
                     const charName = conv.name || conv.title || conv.handle || '未命名会话';
                     return `
                     <div class="mp-card mp-fade-in" style="
-                      padding: 28px;
+                      padding: 24px;
                       margin-bottom: 20px;
                       animation-delay: ${idx * 0.1}s;
-                      border: 2px solid;
-                      border-image: linear-gradient(135deg, #B8A1C9, #E8B4D9, #B8A1C9) 1;
+                      border: 2px solid rgba(184, 161, 193, 0.2);
                       border-radius: 28px;
                       position: relative;
+                      background: white;
                     ">
-                      <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
+                      <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
                         <div style="
-                          width: 64px;
-                          height: 64px;
-                          border-radius: 20px;
+                          width: 72px;
+                          height: 72px;
+                          border-radius: 50%;
                           ${charAvatar ? `background-image: url('${charAvatar}'); background-size: cover; background-position: center;` : `
                           background: linear-gradient(135deg, #B8A1C9, #D4BFE0);
                           display: flex;
                           align-items: center;
                           justify-content: center;
-                          font-size: 32px;`}
+                          font-size: 36px;`}
                           flex-shrink: 0;
-                          box-shadow: 0 4px 16px rgba(184, 161, 193, 0.25);
+                          box-shadow: 0 4px 12px rgba(184, 161, 193, 0.2);
                           overflow: hidden;
                         ">
                           ${charAvatar ? '' : '🧠'}
                         </div>
                         <div style="flex: 1;">
-                          <div style="font-size: 20px; font-weight: 700; color: #3D3633; letter-spacing: 0.3px; margin-bottom: 6px;">
+                          <div style="font-size: 20px; font-weight: 700; color: #3D3633; margin-bottom: 4px;">
                             ${charName}
                           </div>
                           <div style="font-size: 13px; color: #8B6B9D; font-weight: 600;">
@@ -803,10 +803,10 @@
                           </div>
                         </div>
                         <div style="
-                          width: 48px;
-                          height: 48px;
+                          width: 52px;
+                          height: 52px;
                           background: linear-gradient(135deg, #8B6B9D, #9B7FBD);
-                          border-radius: 16px;
+                          border-radius: 50%;
                           display: flex;
                           align-items: center;
                           justify-content: center;
@@ -815,22 +815,34 @@
                           font-weight: 700;
                           cursor: pointer;
                           transition: all 0.3s;
-                        " class="mp-enter-btn" data-conv-id="${conv.id}">
+                          box-shadow: 0 4px 12px rgba(139, 107, 157, 0.3);
+                        " class="mp-enter-btn" data-conv-id="${conv.id}"
+                           onmouseover="this.style.transform='scale(1.1)'; this.style.boxShadow='0 6px 16px rgba(139, 107, 157, 0.4)'"
+                           onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 4px 12px rgba(139, 107, 157, 0.3)'">
                           →
                         </div>
                       </div>
 
                       <!-- 记忆宫殿开关 -->
-                      <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; background: rgba(184, 161, 193, 0.08); border-radius: 16px; margin-bottom: 12px;">
-                        <div style="display: flex; align-items: center; gap: 14px;">
-                          <div style="font-size: 24px; opacity: 0.7;">🧠</div>
+                      <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px; background: rgba(184, 161, 193, 0.06); border-radius: 16px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                          <div style="
+                            width: 40px;
+                            height: 40px;
+                            background: rgba(139, 107, 157, 0.1);
+                            border-radius: 12px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-size: 22px;
+                          ">🧠</div>
                           <div>
-                            <div style="font-size: 15px; font-weight: 700; color: #3D3633; margin-bottom: 4px;">记忆宫殿</div>
-                            <div style="font-size: 12px; color: rgba(107, 95, 88, 0.6);">七房间空间模型·向量检索</div>
+                            <div style="font-size: 15px; font-weight: 700; color: #3D3633; margin-bottom: 2px;">记忆宫殿</div>
+                            <div style="font-size: 12px; color: rgba(107, 95, 88, 0.5);">七房间空间模型·向量检索</div>
                           </div>
                         </div>
                         <div class="mp-toggle" data-conv-id="${conv.id}" data-type="palace" style="
-                          width: 52px;
+                          width: 56px;
                           height: 32px;
                           background: #8B6B9D;
                           border-radius: 16px;
@@ -842,12 +854,12 @@
                             width: 28px;
                             height: 28px;
                             background: white;
-                            border-radius: 14px;
+                            border-radius: 50%;
                             position: absolute;
                             top: 2px;
                             right: 2px;
                             transition: all 0.3s;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
                           "></div>
                         </div>
                       </div>
@@ -929,30 +941,32 @@
                 <div class="mp-header" style="padding: 20px 24px 16px;">
                   <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                     <div style="font-size: 17px; color: rgba(107, 95, 88, 0.6); cursor: pointer; font-weight: 500;" id="backBtn">← 返回</div>
-                    <div style="display: flex; align-items: center; gap: 12px; flex: 1; justify-content: center;">
+                    <div style="display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center;">
                       ${charAvatar ? `
                         <img src="${charAvatar}" style="
-                          width: 36px;
-                          height: 36px;
-                          border-radius: 10px;
+                          width: 40px;
+                          height: 40px;
+                          border-radius: 50%;
                           object-fit: cover;
+                          box-shadow: 0 2px 8px rgba(184, 161, 193, 0.2);
                         " />
                       ` : ''}
                       <div style="font-size: 18px; font-weight: 700; color: #3D3633;">
                         ${convName} 的记忆宫殿
                       </div>
-                      <div style="font-size: 14px; color: rgba(107, 95, 88, 0.4);">▼</div>
+                      <div style="font-size: 14px; color: rgba(107, 95, 88, 0.4); cursor: pointer;" id="switchCharBtn">▼</div>
                     </div>
                     <div style="
                       width: 44px;
                       height: 44px;
                       background: white;
-                      border-radius: 14px;
+                      border-radius: 50%;
                       display: flex;
                       align-items: center;
                       justify-content: center;
                       cursor: pointer;
-                      box-shadow: 0 2px 8px rgba(184, 161, 193, 0.15);
+                      box-shadow: 0 2px 8px rgba(184, 161, 193, 0.12);
+                      font-size: 20px;
                     ">⚙️</div>
                   </div>
                   <div style="text-align: center; font-size: 13px; color: rgba(107, 95, 88, 0.5); font-weight: 400;">
@@ -1144,6 +1158,93 @@
               currentView = 'conversationSelect';
               render();
             };
+
+            // 切换角色下拉菜单
+            const switchCharBtn = container.querySelector('#switchCharBtn');
+            if (switchCharBtn) {
+              switchCharBtn.onclick = (e) => {
+                e.stopPropagation();
+                // 创建下拉菜单
+                const dropdown = document.createElement('div');
+                dropdown.style.cssText = `
+                  position: fixed;
+                  top: ${e.target.getBoundingClientRect().bottom + 8}px;
+                  left: 50%;
+                  transform: translateX(-50%);
+                  background: white;
+                  border-radius: 16px;
+                  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+                  padding: 8px;
+                  z-index: 10000;
+                  min-width: 200px;
+                  max-height: 400px;
+                  overflow-y: auto;
+                `;
+
+                dropdown.innerHTML = conversations.map(conv => `
+                  <div style="
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 12px;
+                    border-radius: 12px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    ${conv.id === selectedConvId ? 'background: rgba(139, 107, 157, 0.1);' : ''}
+                  " class="dropdown-item" data-conv-id="${conv.id}">
+                    <img src="${conv._avatarUrl || ''}" style="
+                      width: 36px;
+                      height: 36px;
+                      border-radius: 50%;
+                      object-fit: cover;
+                      ${!conv._avatarUrl ? 'display: none;' : ''}
+                    " />
+                    <div style="flex: 1;">
+                      <div style="font-size: 14px; font-weight: 600; color: #3D3633;">
+                        ${conv.name || conv.title || conv.handle}
+                      </div>
+                    </div>
+                    ${conv.id === selectedConvId ? '<div style="color: #8B6B9D;">✓</div>' : ''}
+                  </div>
+                `).join('');
+
+                document.body.appendChild(dropdown);
+
+                // 绑定点击事件
+                dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+                  item.onmouseover = () => {
+                    if (item.dataset.convId !== selectedConvId) {
+                      item.style.background = 'rgba(139, 107, 157, 0.05)';
+                    }
+                  };
+                  item.onmouseout = () => {
+                    if (item.dataset.convId !== selectedConvId) {
+                      item.style.background = 'transparent';
+                    }
+                  };
+                  item.onclick = async () => {
+                    const newConvId = item.dataset.convId;
+                    if (newConvId !== selectedConvId) {
+                      selectedConvId = newConvId;
+                      await loadMemories();
+                      render();
+                    }
+                    dropdown.remove();
+                  };
+                });
+
+                // 点击外部关闭
+                setTimeout(() => {
+                  const closeDropdown = (e) => {
+                    if (!dropdown.contains(e.target)) {
+                      dropdown.remove();
+                      document.removeEventListener('click', closeDropdown);
+                    }
+                  };
+                  document.addEventListener('click', closeDropdown);
+                }, 0);
+              };
+            }
 
             container.querySelector('#viewAllBtn').onclick = () => {
               currentView = 'allMemories';
