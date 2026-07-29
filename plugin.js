@@ -829,13 +829,14 @@
                           <div style="
                             width: 40px;
                             height: 40px;
-                            background: rgba(139, 107, 157, 0.1);
+                            background: linear-gradient(135deg, #B8A1C9, #9B7FBD);
                             border-radius: 12px;
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            font-size: 22px;
-                          ">🧠</div>
+                            color: white;
+                            font-size: 18px;
+                          ">${getSvgIcon('mirror', 22)}</div>
                           <div>
                             <div style="font-size: 15px; font-weight: 700; color: #3D3633; margin-bottom: 2px;">记忆宫殿</div>
                             <div style="font-size: 12px; color: rgba(107, 95, 88, 0.5);">七房间空间模型·向量检索</div>
