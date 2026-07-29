@@ -367,32 +367,46 @@
             console.log('[记忆宫殿] ===== 开始加载会话 =====');
             console.log('[记忆宫殿] 会话总数:', conversations.length);
 
+            // 输出第一个会话的所有字段
+            if (conversations.length > 0) {
+              const firstConv = conversations[0];
+              console.log('[记忆宫殿] 第一个会话的所有字段名:', Object.keys(firstConv));
+              console.log('[记忆宫殿] 第一个会话完整对象:', JSON.stringify(firstConv, null, 2));
+            }
+
             // 为每个会话加载角色信息
             for (const conv of conversations) {
-              console.log('[记忆宫殿] 会话对象完整结构:', conv);
-              console.log('[记忆宫殿] 会话 ID:', conv.id);
+              console.log('[记忆宫殿] -----');
               console.log('[记忆宫殿] 会话名称:', conv.name || conv.title || conv.handle);
-              console.log('[记忆宫殿] characterId:', conv.characterId);
-              console.log('[记忆宫殿] character对象:', conv.character);
 
-              try {
-                // 尝试多种方式获取角色信息
-                if (conv.characterId) {
-                  const character = await roche.character.get(conv.characterId);
-                  conv._character = character;
-                  console.log('[记忆宫殿] 通过 characterId 获取到角色:', character);
-                } else if (conv.character) {
-                  // 有些会话可能直接包含角色对象
-                  conv._character = conv.character;
-                  console.log('[记忆宫殿] 会话自带角色:', conv.character);
+              // 尝试所有可能的字段
+              const possibleAvatarFields = [
+                'avatar', 'avatarUrl', 'image', 'imageUrl', 'icon', 'iconUrl',
+                'characterAvatar', 'characterImage', 'profileImage', 'profilePicture',
+                'picture', 'photo', 'thumbnail'
+              ];
+
+              for (const field of possibleAvatarFields) {
+                if (conv[field]) {
+                  console.log(`[记忆宫殿] 找到字段 ${field}:`, conv[field]);
+                  conv._avatarUrl = conv[field];
+                  break;
                 }
-
-                // 输出最终的头像地址
-                const avatar = conv._character?.avatar || conv._character?.avatarUrl || conv._character?.image || '';
-                console.log('[记忆宫殿] 最终头像地址:', avatar);
-              } catch (e) {
-                console.error('[记忆宫殿] 获取角色信息失败:', e);
               }
+
+              // 如果 conversation 里有嵌套的 character 对象
+              if (conv.character) {
+                console.log('[记忆宫殿] character对象字段:', Object.keys(conv.character));
+                for (const field of possibleAvatarFields) {
+                  if (conv.character[field]) {
+                    console.log(`[记忆宫殿] 在character里找到 ${field}:`, conv.character[field]);
+                    conv._avatarUrl = conv.character[field];
+                    break;
+                  }
+                }
+              }
+
+              console.log('[记忆宫殿] 最终头像URL:', conv._avatarUrl || '未找到');
             }
             console.log('[记忆宫殿] ===== 加载完成 =====');
           }
