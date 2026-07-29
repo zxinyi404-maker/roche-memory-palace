@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v8.0.1
-// 🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查 | 美化同步按钮
+// Roche 记忆宫殿插件 v8.0.2
+// 🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查 | 莫兰迪风格按钮
 
 (function() {
   'use strict';
@@ -348,7 +348,7 @@
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '8.0.1',
+    version: '8.0.2',
     apps: [
       {
         id: 'memory-palace-home',
@@ -1068,48 +1068,44 @@
                       <span>查看事件盒</span>
                     </div>
                     <div class="mp-btn" style="
-                      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+                      background: linear-gradient(135deg, rgba(232, 180, 184, 0.95) 0%, rgba(201, 168, 184, 0.95) 50%, rgba(184, 161, 201, 0.95) 100%);
                       color: white;
                       border: none;
                       white-space: nowrap;
                       font-weight: 700;
-                      border-radius: 24px;
-                      padding: 14px 24px;
-                      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4), 0 2px 8px rgba(118, 75, 162, 0.3);
+                      border-radius: 28px;
+                      padding: 16px 28px;
+                      box-shadow: 0 8px 24px rgba(232, 180, 184, 0.35), 0 2px 8px rgba(184, 161, 201, 0.25);
                       display: flex;
                       align-items: center;
-                      gap: 8px;
+                      gap: 10px;
                       position: relative;
                       overflow: hidden;
-                      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                      border: 2px solid rgba(255, 255, 255, 0.3);
+                      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+                      backdrop-filter: blur(10px);
+                      -webkit-backdrop-filter: blur(10px);
                     " id="syncToRocheBtn"
                     onmouseover="
-                      this.style.transform='translateY(-2px) scale(1.02)';
-                      this.style.boxShadow='0 8px 25px rgba(102, 126, 234, 0.6), 0 4px 12px rgba(118, 75, 162, 0.4)';
+                      this.style.transform='translateY(-3px)';
+                      this.style.boxShadow='0 12px 32px rgba(232, 180, 184, 0.45), 0 4px 12px rgba(184, 161, 201, 0.35)';
                     "
                     onmouseout="
-                      this.style.transform='translateY(0) scale(1)';
-                      this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4), 0 2px 8px rgba(118, 75, 162, 0.3)';
+                      this.style.transform='translateY(0)';
+                      this.style.boxShadow='0 8px 24px rgba(232, 180, 184, 0.35), 0 2px 8px rgba(184, 161, 201, 0.25)';
                     "
-                    onmousedown="this.style.transform='translateY(0) scale(0.98)'"
-                    onmouseup="this.style.transform='translateY(-2px) scale(1.02)'">
+                    onmousedown="this.style.transform='translateY(0) scale(0.96)'"
+                    onmouseup="this.style.transform='translateY(-3px) scale(1)'">
                       <span style="
-                        font-size: 18px;
-                        animation: rotate 2s linear infinite;
+                        font-size: 20px;
                         display: inline-block;
+                        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
                       ">🔄</span>
                       <span style="
-                        font-size: 14px;
-                        letter-spacing: 0.5px;
-                        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+                        font-size: 15px;
+                        letter-spacing: 0.8px;
+                        text-shadow: 0 2px 4px rgba(139, 95, 88, 0.15);
+                        font-weight: 700;
                       ">同步到 Roche</span>
-                      <style>
-                        @keyframes rotate {
-                          from { transform: rotate(0deg); }
-                          to { transform: rotate(360deg); }
-                        }
-                      </style>
                     </div>
                   </div>
 
