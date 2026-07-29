@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v7.7.0
-// 完整功能 + iOS开关 + 真实头像 + 下拉切换 + 全部记忆页重构 + 🔥 记忆同步到 Roche
+// Roche 记忆宫殿插件 v7.6.0
+// 完整功能 + iOS开关 + 真实头像 + 下拉切换 + 全部记忆页重构
 
 (function() {
   'use strict';
@@ -441,56 +441,6 @@
 
             // 自动保存更新后的数据
             scheduleSave();
-          }
-
-          // ============ 同步到 Roche 记忆系统 ============
-
-          // 同步单条记忆到 Roche
-          async function syncMemoryToRoche(memory) {
-            try {
-              await roche.memory.update(memory.id, {
-                importance: memory.importance,
-                room: memory.room,
-                emotion: memory.emotion,
-                reviewCount: memory.reviewCount,
-                lastRecall: memory.lastRecall,
-                relations: memory.relations
-              });
-              console.log(`[记忆宫殿] 已同步记忆 ${memory.id} 到 Roche`);
-            } catch (err) {
-              console.error(`[记忆宫殿] 同步记忆失败:`, memory.id, err);
-            }
-          }
-
-          // 批量同步所有记忆到 Roche
-          async function syncAllMemoriesToRoche() {
-            if (!memories || memories.length === 0) {
-              roche.ui.toast('没有需要同步的记忆');
-              return;
-            }
-
-            try {
-              let successCount = 0;
-              let failCount = 0;
-
-              for (const mem of memories) {
-                try {
-                  await syncMemoryToRoche(mem);
-                  successCount++;
-                } catch (err) {
-                  failCount++;
-                }
-              }
-
-              if (failCount === 0) {
-                roche.ui.toast(`✅ 成功同步 ${successCount} 条记忆到 Roche`);
-              } else {
-                roche.ui.toast(`⚠️ 同步完成：成功 ${successCount} 条，失败 ${failCount} 条`);
-              }
-            } catch (err) {
-              console.error('[记忆宫殿] 批量同步失败:', err);
-              roche.ui.toast('❌ 同步失败，请查看控制台');
-            }
           }
 
           async function saveMemoryMeta() {
@@ -1067,22 +1017,6 @@
                       <span style="font-size: 16px;">📦</span>
                       <span>查看事件盒</span>
                     </div>
-                    <div class="mp-btn" style="
-                      background: linear-gradient(135deg, #E8B4B8, #B8A1C9);
-                      color: white;
-                      border: none;
-                      white-space: nowrap;
-                      font-weight: 600;
-                      border-radius: 20px;
-                      padding: 12px 20px;
-                      box-shadow: 0 2px 8px rgba(184, 161, 193, 0.12);
-                      display: flex;
-                      align-items: center;
-                      gap: 6px;
-                    " id="syncToRocheBtn">
-                      <span style="font-size: 16px;">🔄</span>
-                      <span>同步到 Roche</span>
-                    </div>
                   </div>
 
                   <!-- 搜索框 -->
@@ -1324,19 +1258,6 @@
             container.querySelector('#viewEventsBtn').onclick = () => {
               currentView = 'eventBox';
               render();
-            };
-
-            // 🔥 同步到 Roche 按钮
-            container.querySelector('#syncToRocheBtn').onclick = async () => {
-              const confirmSync = await roche.ui.confirm({
-                title: '同步记忆到 Roche',
-                message: `即将把 ${memories.length} 条记忆的元数据（重要性、房间、情绪、复习次数）同步到 Roche 系统，AI 对话时将能感知这些数据。确定继续？`
-              });
-
-              if (confirmSync) {
-                roche.ui.toast('🔄 正在同步...');
-                await syncAllMemoriesToRoche();
-              }
             };
 
             // 快速搜索功能
@@ -1591,12 +1512,8 @@
                 const mem = memories.find(m => m.id === memId);
                 if (mem) {
                   reinforceMemory(mem);
-
-                  // 🔥 重要操作：立即同步到 Roche（复习次数和时间）
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 记忆已巩固！已同步到 Roche');
+                  roche.ui.toast('✨ 记忆已巩固！保持率提升');
                   render();
                 }
               };
@@ -1800,12 +1717,8 @@
                 if (mem) {
                   mem.accessCount = (mem.accessCount || 0) + 1;
                   reinforceMemory(mem);
-
-                  // 🔥 立即同步到 Roche
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 记忆已巩固！已同步到 Roche');
+                  roche.ui.showToast('✨ 记忆已巩固！');
                   render();
                 }
               };
@@ -1924,12 +1837,8 @@
                 if (mem) {
                   mem.accessCount = (mem.accessCount || 0) + 1;
                   reinforceMemory(mem);
-
-                  // 🔥 立即同步到 Roche
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 事件已查看！已同步到 Roche');
+                  roche.ui.showToast('✨ 事件已查看！');
                   render();
                 }
               };
@@ -2062,12 +1971,8 @@
                 const mem = memories.find(m => m.id === memId);
                 if (mem) {
                   reinforceMemory(mem);
-
-                  // 🔥 立即同步到 Roche
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 记忆已巩固！已同步到 Roche');
+                  roche.ui.toast('✨ 记忆已巩固！');
                   render();
                 }
               };
