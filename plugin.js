@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v8.0.5
-// 只读记忆分析 | 本地相关度排序 | 艾宾浩斯保持率 | 插件内软遗忘
+// Roche 记忆宫殿插件 v8.0.6
+// 本地记忆分析 | 综合评分 | 艾宾浩斯保持率 | 用户确认后删除
 
 (function() {
   'use strict';
@@ -138,7 +138,8 @@
     const effectiveDecay = 1 + (room.decayRate * 2);
     const retention = Math.exp(-daysPassed / (S / effectiveDecay));
 
-    return Math.min(1, Math.max(retention, room.decayRate === 0 ? 0.7 : 0));
+    const minimumRetention = room.id === 'selfRoom' ? 0.2 : 0;
+    return Math.min(1, Math.max(retention, minimumRetention));
   }
 
   // 软遗忘只作为插件内状态展示和排序依据，不删除或修改 Roche 主记忆。
@@ -181,6 +182,14 @@
     return Math.round(score * (memory.softForgetOverride === 'faded' ? 0.35 : 1) * 100);
   }
 
+  const DELETE_RETENTION_THRESHOLD = 0.1;
+  const DELETE_SCORE_THRESHOLD = 25;
+
+  function isDeleteEligible(memory) {
+    return calculateRetention(memory) <= DELETE_RETENTION_THRESHOLD &&
+      calculateMemoryScore(memory) <= DELETE_SCORE_THRESHOLD;
+  }
+
   function markSoftForgotten(memory) {
     memory.softForgetOverride = 'faded';
     memory.softForgetState = 'faded';
@@ -188,6 +197,8 @@
 
   function restoreFromSoftForget(memory) {
     memory.softForgetOverride = null;
+    memory.pendingDelete = false;
+    memory.deleteDismissed = false;
     memory.lastRecall = Date.now();
     memory.reviewCount = (memory.reviewCount || 0) + 1;
     memory.softForgetState = 'active';
@@ -196,6 +207,8 @@
   function reinforceMemory(memory) {
     memory.lastRecall = Date.now();
     memory.reviewCount = (memory.reviewCount || 0) + 1;
+    memory.pendingDelete = false;
+    memory.deleteDismissed = false;
     return memory;
   }
 
@@ -421,7 +434,7 @@
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '8.0.5',
+    version: '8.0.6',
     apps: [
       {
         id: 'memory-palace-home',
@@ -506,7 +519,9 @@
                 room: meta.room || classifyMemory(text),
                 relations: meta.relations || [],
                 softForgetState: meta.softForgetState || 'active',
-                softForgetOverride: meta.softForgetOverride || null
+                softForgetOverride: meta.softForgetOverride || null,
+                pendingDelete: meta.pendingDelete || false,
+                deleteDismissed: meta.deleteDismissed || false
               };
             });
 
@@ -514,6 +529,9 @@
             memories = await autoForget(memories);
             memories.forEach(mem => {
               mem.softForgetState = getSoftForgetState(mem);
+              if (!mem.pendingDelete && !mem.deleteDismissed && isDeleteEligible(mem)) {
+                mem.pendingDelete = true;
+              }
             });
 
             memories.sort((a, b) => b.timestamp - a.timestamp);
@@ -534,7 +552,9 @@
                 room: mem.room,
                 relations: mem.relations,
                 softForgetState: getSoftForgetState(mem),
-                softForgetOverride: mem.softForgetOverride || null
+                softForgetOverride: mem.softForgetOverride || null,
+                pendingDelete: mem.pendingDelete || false,
+                deleteDismissed: mem.deleteDismissed || false
               };
             });
             await roche.storage.set(`memoryMeta:${selectedConvId}`, meta);
@@ -925,7 +945,7 @@
                           ">${getSvgIcon('lightbulb', 22)}</div>
                           <div>
                             <div style="font-size: 15px; font-weight: 700; color: #3D3633; margin-bottom: 2px;">记忆宫殿</div>
-                        <div style="font-size: 12px; color: rgba(107, 95, 88, 0.5);">七房间模型·只读记忆分析</div>
+                        <div style="font-size: 12px; color: rgba(107, 95, 88, 0.5);">七房间模型·本地记忆分析</div>
                           </div>
                         </div>
                         <div class="mp-toggle" data-conv-id="${conv.id}" data-type="palace" style="
@@ -2118,12 +2138,19 @@
           // ============ 7. 遗忘中心 ============
 
           function renderForgettingCenter() {
+            memories.forEach(mem => {
+              if (!mem.pendingDelete && !mem.deleteDismissed && isDeleteEligible(mem)) {
+                mem.pendingDelete = true;
+              }
+            });
             const fadingCount = memories.filter(m => getSoftForgetState(m) === 'fading').length;
             const fadedCount = memories.filter(m => getSoftForgetState(m) === 'faded').length;
+            const pendingDeleteCount = memories.filter(m => m.pendingDelete).length;
             const candidates = memories
               .filter(mem => {
                 const state = getSoftForgetState(mem);
-                return forgetFilter === 'all' || state === forgetFilter;
+                return forgetFilter === 'all' ||
+                  (forgetFilter === 'pending' ? mem.pendingDelete : state === forgetFilter);
               })
               .sort((a, b) => calculateMemoryScore(a) - calculateMemoryScore(b));
 
@@ -2135,13 +2162,13 @@
                     <div style="font-size: 20px; font-weight: 700; color: #6B4C3B;">遗忘中心</div>
                   </div>
                   <div style="font-size: 13px; color: #9B806F; line-height: 1.6;">
-                    这里按插件评分找出低保持率记忆。确认软遗忘只会标记插件状态，不会删除或修改 Roche 主记忆。
+                    这里按插件评分找出低保持率记忆。达到删除阈值的记忆会进入待确认列表，只有你二次确认后才会调用 Roche 删除接口。
                   </div>
                 </div>
 
                 <div class="mp-content" style="padding: 20px 16px;">
                   <div style="max-width: 800px; margin: 0 auto;">
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px;">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px;">
                       <div class="mp-card forget-filter" data-forget-filter="all" style="padding: 16px; text-align: center; cursor: pointer; border: 2px solid ${forgetFilter === 'all' ? '#B26A00' : 'transparent'};">
                         <div style="font-size: 28px; font-weight: 700; color: #B26A00;">${memories.length}</div>
                         <div style="font-size: 12px; color: #9B806F;">全部记忆</div>
@@ -2154,6 +2181,10 @@
                         <div style="font-size: 28px; font-weight: 700; color: #A85D4A;">${fadedCount}</div>
                         <div style="font-size: 12px; color: #9B806F;">已标记淡忘</div>
                       </div>
+                      <div class="mp-card forget-filter" data-forget-filter="pending" style="padding: 16px; text-align: center; cursor: pointer; border: 2px solid ${forgetFilter === 'pending' ? '#B23B3B' : 'transparent'};">
+                        <div style="font-size: 28px; font-weight: 700; color: #B23B3B;">${pendingDeleteCount}</div>
+                        <div style="font-size: 12px; color: #9B806F;">待确认删除</div>
+                      </div>
                     </div>
 
                     ${candidates.length === 0 ? `
@@ -2165,8 +2196,8 @@
                       const state = getSoftForgetState(mem);
                       const retention = calculateRetention(mem);
                       const score = calculateMemoryScore(mem);
-                      const stateName = state === 'faded' ? '已标记淡忘' : state === 'fading' ? '正在淡化' : '保持中';
-                      const stateColor = state === 'faded' ? '#A85D4A' : state === 'fading' ? '#E29B35' : '#4D8A61';
+                      const stateName = mem.pendingDelete ? '待确认删除' : state === 'faded' ? '已标记淡忘' : state === 'fading' ? '正在淡化' : '保持中';
+                      const stateColor = mem.pendingDelete ? '#B23B3B' : state === 'faded' ? '#A85D4A' : state === 'fading' ? '#E29B35' : '#4D8A61';
 
                       return `
                         <div class="mp-card mp-fade-in" style="padding: 18px; margin-bottom: 12px; animation-delay: ${Math.min(idx * 0.03, 0.5)}s;">
@@ -2178,7 +2209,10 @@
                             <span style="color: #8B6B9D; font-weight: 700;">记忆评分 ${score}/100</span>
                           </div>
                           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                            ${state === 'faded' ? `
+                            ${mem.pendingDelete ? `
+                              <button class="mp-btn confirm-delete-btn" data-delete-id="${mem.id}" style="padding: 8px 12px; background: #B23B3B; color: white; font-size: 12px;">🗑 确认删除</button>
+                              <button class="mp-btn keep-memory-btn" data-keep-id="${mem.id}" style="padding: 8px 12px; background: #F3F3F3; color: #5C5C5C; font-size: 12px;">保留</button>
+                            ` : state === 'faded' ? `
                               <button class="mp-btn restore-forget-btn" data-restore-id="${mem.id}" style="padding: 8px 12px; background: #EAF6EE; color: #357A4B; font-size: 12px;">↻ 复习并恢复</button>
                             ` : `
                               <button class="mp-btn mark-forget-btn" data-forget-id="${mem.id}" style="padding: 8px 12px; background: #FFF0E2; color: #A85D4A; font-size: 12px;">🍂 确认软遗忘</button>
@@ -2217,6 +2251,48 @@
                 markSoftForgotten(mem);
                 scheduleSave();
                 roche.ui.toast('已在插件内标记为淡忘，Roche 主记忆未改变');
+                render();
+              };
+            });
+
+            container.querySelectorAll('.confirm-delete-btn').forEach(btn => {
+              btn.onclick = async (event) => {
+                event.stopPropagation();
+                const mem = memories.find(item => item.id === btn.dataset.deleteId);
+                if (!mem) return;
+                if (typeof roche.memory.delete !== 'function') {
+                  roche.ui.toast('当前 Roche 版本没有开放 memory.delete');
+                  return;
+                }
+
+                const confirmed = await roche.ui.confirm({
+                  title: '永久删除 Roche 记忆',
+                  message: '这会从 Roche 主记忆中删除该条记录，通常不可恢复。插件评分和元数据也会同步移除，确定继续吗？'
+                });
+                if (!confirmed) return;
+
+                try {
+                  await roche.memory.delete(mem.id);
+                  memories = memories.filter(item => item.id !== mem.id);
+                  scheduleSave();
+                  roche.ui.toast('已从 Roche 主记忆删除');
+                  render();
+                } catch (err) {
+                  console.error('[记忆宫殿] 删除 Roche 记忆失败:', err);
+                  roche.ui.toast('删除失败，Roche 主记忆未改变');
+                }
+              };
+            });
+
+            container.querySelectorAll('.keep-memory-btn').forEach(btn => {
+              btn.onclick = (event) => {
+                event.stopPropagation();
+                const mem = memories.find(item => item.id === btn.dataset.keepId);
+                if (!mem) return;
+                mem.pendingDelete = false;
+                mem.deleteDismissed = true;
+                scheduleSave();
+                roche.ui.toast('已保留，之后不会重复进入待删除列表');
                 render();
               };
             });

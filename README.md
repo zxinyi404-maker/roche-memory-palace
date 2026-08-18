@@ -1,15 +1,15 @@
 # Roche 记忆宫殿
 
-Roche 的只读记忆分析插件。它读取 Roche 已有的长期记忆，在插件自己的存储空间里计算保持率、重要性和软遗忘状态，并提供一个可视化的七房间面板。
+Roche 的本地记忆分析插件。它读取 Roche 已有的长期记忆，在插件自己的存储空间里计算保持率、重要性和软遗忘状态，并提供一个可视化的七房间面板。
 
 ## 当前版本的边界
 
 - Roche 原有的自动记忆写入继续工作。
 - Roche 原有的向量记忆召回和排序完全不改动。
-- 插件只调用 `memory.getLongTerm`、`memory.getShortTerm`、会话读取和 `storage`。
-- 插件不会调用 `memory.write`、`memory.update`、`memory.delete`。
+- 插件只读取 Roche 记忆；只有用户在“遗忘中心”二次确认后，才调用 `memory.delete` 删除达到阈值的记录。
+- 插件不会调用 `memory.write` 或 `memory.update`。
 - 插件没有 `chat.contextProvider`，不会把结果注入主对话，也不会调用 AI。
-- “自动遗忘”是插件内的软遗忘：只改变插件自己的房间、保持率和状态元数据，不删除 Roche 主记忆。
+- “自动遗忘”只负责计算阈值和生成待删除列表，不会自动删除 Roche 主记忆。
 
 ## 功能
 
@@ -23,8 +23,9 @@ Roche 的只读记忆分析插件。它读取 Roche 已有的长期记忆，在�
 
 - 确认“软遗忘”：只在插件 storage 中标记为 `faded`。
 - “复习并恢复”：清除插件内淡忘标记并增加一次插件复习。
+- 达到删除阈值的记忆会进入“待确认删除”，用户二次确认后才调用 Roche 的 `memory.delete`。
 
-这两个操作都不会删除或更新 Roche 主记忆。
+删除前会显示不可逆提示；取消确认或点击“保留”都不会改变 Roche 主记忆。
 
 ### 艾宾浩斯保持率
 
@@ -35,6 +36,8 @@ Roche 的只读记忆分析插件。它读取 Roche 已有的长期记忆，在�
 - `active`：保持率不低于 30%。
 - `fading`：保持率低于 30%，显示为低保持率（软遗忘）。
 - `faded`：保持率低于 10%，仅标记为已淡忘，不自动删除。
+
+删除候选同时要求保持率不高于 10%、插件综合评分不高于 25；达到条件后只进入待确认列表。
 
 ### 插件内软遗忘
 
@@ -54,7 +57,7 @@ Roche 的只读记忆分析插件。它读取 Roche 已有的长期记忆，在�
 https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/manifest.json
 ```
 
-当前 manifest 权限：`persona:read`、`character:read`、`conversation:read`、`memory:read`、`storage`、`ui`。
+当前 manifest 权限：`persona:read`、`character:read`、`conversation:read`、`memory:read`、`memory:write`、`storage`、`ui`。其中 `memory:write` 只用于用户确认后的 `memory.delete`，插件没有写回评分或房间的逻辑。
 
 ## 数据存储
 
@@ -64,7 +67,7 @@ https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/manif
 memoryMeta:{conversationId}
 ```
 
-卸载插件或清理这组 storage 元数据不会删除 Roche 主记忆。当前版本也没有自动删除主记忆的功能；如需清理，应由用户在 Roche 原生记忆界面手动确认。
+卸载插件或清理这组 storage 元数据不会删除 Roche 主记忆。当前版本不会自动删除；只有用户在遗忘中心二次确认待删除项目后才会调用 Roche 删除 API。
 
 ## 开发和检查
 
@@ -75,13 +78,13 @@ node --check plugin.js
 文件结构：
 
 ```text
-manifest.json   插件元信息和只读权限
+manifest.json   插件元信息和权限
 plugin.js       插件入口
 README.md       当前行为说明
 ```
 
 ## 版本
 
-当前版本：`8.0.5`
+当前版本：`8.0.6`
 
 MIT License
