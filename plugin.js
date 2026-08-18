@@ -1,4 +1,4 @@
-// Roche 记忆宫殿插件 v8.0.4
+// Roche 记忆宫殿插件 v8.0.5
 // 只读记忆分析 | 本地相关度排序 | 艾宾浩斯保持率 | 插件内软遗忘
 
 (function() {
@@ -138,15 +138,59 @@
     const effectiveDecay = 1 + (room.decayRate * 2);
     const retention = Math.exp(-daysPassed / (S / effectiveDecay));
 
-    return Math.max(retention, room.decayRate === 0 ? 0.7 : 0);
+    return Math.min(1, Math.max(retention, room.decayRate === 0 ? 0.7 : 0));
   }
 
   // 软遗忘只作为插件内状态展示和排序依据，不删除或修改 Roche 主记忆。
   function getSoftForgetState(memory) {
+    if (memory.softForgetOverride === 'faded') return 'faded';
     const retention = calculateRetention(memory);
     if (retention < 0.1) return 'faded';
     if (retention < 0.3) return 'fading';
     return 'active';
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  // 插件自己的 0-100 分数：只用于面板排序和软遗忘分析。
+  function calculateMemoryScore(memory) {
+    const text = memory.text || '';
+    const storedImportance = clamp(Number(memory.importance) || 5, 1, 10) / 10;
+    const inferredImportance = detectImportance(text) / 10;
+    const retention = calculateRetention(memory);
+    const emotional = memory.emotion && memory.emotion !== 'neutral' ? 1 : 0;
+    const review = clamp((memory.reviewCount || 0) / 5, 0, 1);
+    const tokens = new Set(text.toLowerCase().match(/[一-龥a-z0-9]+/g) || []);
+    const detail = clamp((text.length / 120) * 0.5 + (tokens.size / 30) * 0.5, 0, 1);
+    const daysPassed = Math.max(0, (Date.now() - memory.lastRecall) / (1000 * 60 * 60 * 24));
+    const freshness = clamp(1 - daysPassed / 30, 0, 1);
+
+    const score = clamp(
+      storedImportance * 0.3 +
+      inferredImportance * 0.3 +
+      retention * 0.25 +
+      emotional * 0.05 +
+      review * 0.05 +
+      (detail * 0.025 + freshness * 0.025),
+      0,
+      1
+    );
+
+    return Math.round(score * (memory.softForgetOverride === 'faded' ? 0.35 : 1) * 100);
+  }
+
+  function markSoftForgotten(memory) {
+    memory.softForgetOverride = 'faded';
+    memory.softForgetState = 'faded';
+  }
+
+  function restoreFromSoftForget(memory) {
+    memory.softForgetOverride = null;
+    memory.lastRecall = Date.now();
+    memory.reviewCount = (memory.reviewCount || 0) + 1;
+    memory.softForgetState = 'active';
   }
 
   function reinforceMemory(memory) {
@@ -177,11 +221,16 @@
   }
 
   function detectImportance(text) {
-    if (/永远|刻骨铭心|难忘|一辈子/.test(text)) return 10;
-    if (/重要|关键|必须|一定/.test(text)) return 8;
-    if (/想|希望|可能/.test(text)) return 5;
-    if (/随便|无所谓|算了/.test(text)) return 2;
-    return 5;
+    const value = String(text || '');
+    let score = 4;
+    if (/永远|刻骨铭心|难忘|一辈子/.test(value)) score += 4;
+    if (/重要|关键|必须|一定|承诺|第一次|生日|告白|离开|成功|失败/.test(value)) score += 2;
+    if (/喜欢|爱|想念|温暖|感动|幸福|害怕|委屈/.test(value)) score += 1;
+    if (/想|希望|可能|计划|目标/.test(value)) score += 1;
+    if (/随便|无所谓|算了|今天|天气|吃饭|午饭|晚安/.test(value)) score -= 1;
+    if (value.length >= 60) score += 1;
+    if (value.length >= 140) score += 1;
+    return clamp(Math.round(score), 1, 10);
   }
 
   function getTimeAgo(timestamp) {
@@ -372,7 +421,7 @@
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '8.0.4',
+    version: '8.0.5',
     apps: [
       {
         id: 'memory-palace-home',
@@ -386,8 +435,9 @@
           let selectedRoomId = null;
           let searchQuery = '';
           let saveTimer = null; // 延迟保存定时器
-          let sortBy = 'time'; // 排序方式：time | importance
+          let sortBy = 'score'; // 排序方式：score | time | importance
           let sortOrder = 'desc'; // 排序方向：desc | asc
+          let forgetFilter = 'all'; // 遗忘中心筛选：all | fading | faded
 
           async function loadConversations() {
             conversations = await roche.conversation.list();
@@ -455,7 +505,8 @@
                 emotion: meta.emotion || detectEmotion(text),
                 room: meta.room || classifyMemory(text),
                 relations: meta.relations || [],
-                softForgetState: meta.softForgetState || 'active'
+                softForgetState: meta.softForgetState || 'active',
+                softForgetOverride: meta.softForgetOverride || null
               };
             });
 
@@ -482,7 +533,8 @@
                 emotion: mem.emotion,
                 room: mem.room,
                 relations: mem.relations,
-                softForgetState: getSoftForgetState(mem)
+                softForgetState: getSoftForgetState(mem),
+                softForgetOverride: mem.softForgetOverride || null
               };
             });
             await roche.storage.set(`memoryMeta:${selectedConvId}`, meta);
@@ -719,6 +771,8 @@
               renderSearch();
             } else if (currentView === 'forgettingCurve') {
               renderForgettingCurve();
+            } else if (currentView === 'forgettingCenter') {
+              renderForgettingCenter();
             }
           }
 
@@ -1046,6 +1100,22 @@
                       <span style="font-size: 16px;">📦</span>
                       <span>查看事件盒</span>
                     </div>
+                    <div class="mp-btn" style="
+                      background: #FFF4E5;
+                      color: #B26A00;
+                      border: 1px solid rgba(178, 106, 0, 0.18);
+                      white-space: nowrap;
+                      font-weight: 700;
+                      border-radius: 20px;
+                      padding: 12px 20px;
+                      box-shadow: 0 2px 8px rgba(178, 106, 0, 0.08);
+                      display: flex;
+                      align-items: center;
+                      gap: 6px;
+                    " id="forgettingCenterBtn">
+                      <span style="font-size: 16px;">🍂</span>
+                      <span>遗忘中心</span>
+                    </div>
                   </div>
 
                   <!-- 搜索框 -->
@@ -1289,6 +1359,12 @@
               render();
             };
 
+            container.querySelector('#forgettingCenterBtn').onclick = () => {
+              forgetFilter = 'all';
+              currentView = 'forgettingCenter';
+              render();
+            };
+
             // 快速搜索功能
             const quickSearchInput = container.querySelector('#quickSearchInput');
             const quickSearchIcon = container.querySelector('#quickSearchIcon');
@@ -1411,6 +1487,7 @@
                     <div style="max-width: 800px; margin: 0 auto;">
                       ${roomMemories.map((mem, idx) => {
                         const retention = calculateRetention(mem);
+                        const score = calculateMemoryScore(mem);
                         const emotionInfo = EMOTION_TYPES[mem.emotion];
                         const timeAgo = getTimeAgo(mem.timestamp);
                         const retentionColor = retention > 0.7 ? '#4CAF50' : retention > 0.3 ? '#FF9800' : '#F44336';
@@ -1463,6 +1540,16 @@
                                       font-size: 12px;
                                     ">
                                       重要性 ${mem.importance}
+                                    </span>
+                                    <span style="
+                                      padding: 5px 12px;
+                                      background: rgba(139, 107, 157, 0.12);
+                                      color: #8B6B9D;
+                                      border-radius: 8px;
+                                      font-size: 12px;
+                                      font-weight: 700;
+                                    ">
+                                      评分 ${score}
                                     </span>
                                   </div>
                                   <div style="
@@ -1592,7 +1679,9 @@
           function renderAllMemories() {
             // 排序逻辑
             let sortedMemories = [...memories];
-            if (sortBy === 'time') {
+            if (sortBy === 'score') {
+              sortedMemories.sort((a, b) => sortOrder === 'desc' ? calculateMemoryScore(b) - calculateMemoryScore(a) : calculateMemoryScore(a) - calculateMemoryScore(b));
+            } else if (sortBy === 'time') {
               sortedMemories.sort((a, b) => sortOrder === 'desc' ? b.timestamp - a.timestamp : a.timestamp - b.timestamp);
             } else if (sortBy === 'importance') {
               sortedMemories.sort((a, b) => sortOrder === 'desc' ? b.importance - a.importance : a.importance - b.importance);
@@ -1618,6 +1707,16 @@
                   <!-- 排序按钮 -->
                   <div style="display: flex; align-items: center; gap: 8px;">
                     <div style="font-size: 14px; color: rgba(107, 95, 88, 0.6); margin-right: 4px;">排序：</div>
+                    <div class="sort-btn" data-sort="score" style="
+                      padding: 8px 16px;
+                      border: 2px solid ${sortBy === 'score' ? '#8B6B9D' : 'rgba(184, 161, 193, 0.3)'};
+                      color: ${sortBy === 'score' ? '#8B6B9D' : 'rgba(107, 95, 88, 0.6)'};
+                      border-radius: 20px;
+                      font-size: 14px;
+                      font-weight: 600;
+                      cursor: pointer;
+                      transition: all 0.2s;
+                    ">评分</div>
                     <div class="sort-btn" data-sort="time" style="
                       padding: 8px 16px;
                       border: 2px solid ${sortBy === 'time' ? '#8B6B9D' : 'rgba(184, 161, 193, 0.3)'};
@@ -1664,6 +1763,8 @@
                         const room = SEVEN_ROOMS[mem.room];
                         const emotionInfo = EMOTION_TYPES[mem.emotion] || { icon: '😐', name: 'neutral', color: '#9E9E9E' };
                         const dateStr = new Date(mem.timestamp).toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '/');
+                        const score = calculateMemoryScore(mem);
+                        const retention = calculateRetention(mem);
 
                         return `
                           <div class="mp-card mp-fade-in" style="
@@ -1687,6 +1788,8 @@
                                 <span>${room.name}</span>
                               </div>
                               <div>重要性: ${mem.importance}</div>
+                              <div style="font-weight: 700; color: #8B6B9D;">记忆评分: ${score}/100</div>
+                              <div>保持率: ${(retention * 100).toFixed(0)}%</div>
                               <div>${emotionInfo.name}</div>
                               <div>${dateStr}</div>
                               <div>访问 ${mem.accessCount || 0} 次</div>
@@ -2012,7 +2115,126 @@
             });
           }
 
-          // ============ 7. 遗忘曲线页 ============
+          // ============ 7. 遗忘中心 ============
+
+          function renderForgettingCenter() {
+            const fadingCount = memories.filter(m => getSoftForgetState(m) === 'fading').length;
+            const fadedCount = memories.filter(m => getSoftForgetState(m) === 'faded').length;
+            const candidates = memories
+              .filter(mem => {
+                const state = getSoftForgetState(mem);
+                return forgetFilter === 'all' || state === forgetFilter;
+              })
+              .sort((a, b) => calculateMemoryScore(a) - calculateMemoryScore(b));
+
+            container.innerHTML = GLOBAL_STYLES + `
+              <div class="mp-app">
+                <div class="mp-header" style="padding: 20px 24px; background: #FFF8EF;">
+                  <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 10px;">
+                    <div style="font-size: 20px; color: #8B7E77; cursor: pointer;" id="backBtn">←</div>
+                    <div style="font-size: 20px; font-weight: 700; color: #6B4C3B;">遗忘中心</div>
+                  </div>
+                  <div style="font-size: 13px; color: #9B806F; line-height: 1.6;">
+                    这里按插件评分找出低保持率记忆。确认软遗忘只会标记插件状态，不会删除或修改 Roche 主记忆。
+                  </div>
+                </div>
+
+                <div class="mp-content" style="padding: 20px 16px;">
+                  <div style="max-width: 800px; margin: 0 auto;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px;">
+                      <div class="mp-card forget-filter" data-forget-filter="all" style="padding: 16px; text-align: center; cursor: pointer; border: 2px solid ${forgetFilter === 'all' ? '#B26A00' : 'transparent'};">
+                        <div style="font-size: 28px; font-weight: 700; color: #B26A00;">${memories.length}</div>
+                        <div style="font-size: 12px; color: #9B806F;">全部记忆</div>
+                      </div>
+                      <div class="mp-card forget-filter" data-forget-filter="fading" style="padding: 16px; text-align: center; cursor: pointer; border: 2px solid ${forgetFilter === 'fading' ? '#E29B35' : 'transparent'};">
+                        <div style="font-size: 28px; font-weight: 700; color: #E29B35;">${fadingCount}</div>
+                        <div style="font-size: 12px; color: #9B806F;">正在淡化</div>
+                      </div>
+                      <div class="mp-card forget-filter" data-forget-filter="faded" style="padding: 16px; text-align: center; cursor: pointer; border: 2px solid ${forgetFilter === 'faded' ? '#A85D4A' : 'transparent'};">
+                        <div style="font-size: 28px; font-weight: 700; color: #A85D4A;">${fadedCount}</div>
+                        <div style="font-size: 12px; color: #9B806F;">已标记淡忘</div>
+                      </div>
+                    </div>
+
+                    ${candidates.length === 0 ? `
+                      <div class="mp-empty">
+                        <div class="mp-empty-icon">🌿</div>
+                        <div class="mp-empty-text">当前筛选下没有低分记忆<br/>重要记忆会随着复习保持在较高分数</div>
+                      </div>
+                    ` : candidates.map((mem, idx) => {
+                      const state = getSoftForgetState(mem);
+                      const retention = calculateRetention(mem);
+                      const score = calculateMemoryScore(mem);
+                      const stateName = state === 'faded' ? '已标记淡忘' : state === 'fading' ? '正在淡化' : '保持中';
+                      const stateColor = state === 'faded' ? '#A85D4A' : state === 'fading' ? '#E29B35' : '#4D8A61';
+
+                      return `
+                        <div class="mp-card mp-fade-in" style="padding: 18px; margin-bottom: 12px; animation-delay: ${Math.min(idx * 0.03, 0.5)}s;">
+                          <div style="font-size: 14px; color: #5C4A42; line-height: 1.65; margin-bottom: 12px;">${mem.text}</div>
+                          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 12px;">
+                            <span style="padding: 4px 9px; border-radius: 7px; color: ${stateColor}; background: ${stateColor}1A; font-weight: 700;">${stateName}</span>
+                            <span style="color: #8B7E77;">保持率 ${(retention * 100).toFixed(0)}%</span>
+                            <span style="color: #8B7E77;">重要性 ${mem.importance}</span>
+                            <span style="color: #8B6B9D; font-weight: 700;">记忆评分 ${score}/100</span>
+                          </div>
+                          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            ${state === 'faded' ? `
+                              <button class="mp-btn restore-forget-btn" data-restore-id="${mem.id}" style="padding: 8px 12px; background: #EAF6EE; color: #357A4B; font-size: 12px;">↻ 复习并恢复</button>
+                            ` : `
+                              <button class="mp-btn mark-forget-btn" data-forget-id="${mem.id}" style="padding: 8px 12px; background: #FFF0E2; color: #A85D4A; font-size: 12px;">🍂 确认软遗忘</button>
+                            `}
+                          </div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                </div>
+              </div>
+            `;
+
+            container.querySelector('#backBtn').onclick = () => {
+              currentView = 'memoryPalace';
+              render();
+            };
+
+            container.querySelectorAll('.forget-filter').forEach(btn => {
+              btn.onclick = () => {
+                forgetFilter = btn.dataset.forgetFilter;
+                render();
+              };
+            });
+
+            container.querySelectorAll('.mark-forget-btn').forEach(btn => {
+              btn.onclick = async (event) => {
+                event.stopPropagation();
+                const mem = memories.find(item => item.id === btn.dataset.forgetId);
+                if (!mem) return;
+                const confirmed = await roche.ui.confirm({
+                  title: '确认软遗忘',
+                  message: '只会在记忆宫殿中标记为淡忘，不会删除或修改 Roche 主记忆。是否继续？'
+                });
+                if (!confirmed) return;
+                markSoftForgotten(mem);
+                scheduleSave();
+                roche.ui.toast('已在插件内标记为淡忘，Roche 主记忆未改变');
+                render();
+              };
+            });
+
+            container.querySelectorAll('.restore-forget-btn').forEach(btn => {
+              btn.onclick = (event) => {
+                event.stopPropagation();
+                const mem = memories.find(item => item.id === btn.dataset.restoreId);
+                if (!mem) return;
+                restoreFromSoftForget(mem);
+                scheduleSave();
+                roche.ui.toast('已复习并恢复为活跃记忆，仅更新插件评分');
+                render();
+              };
+            });
+          }
+
+          // ============ 8. 遗忘曲线页 ============
 
           function renderForgettingCurve() {
             const needReview = memories.filter(m => calculateRetention(m) < 0.3).length;
@@ -2022,11 +2244,14 @@
             container.innerHTML = GLOBAL_STYLES + `
               <div class="mp-app">
                 <div class="mp-header" style="padding: 20px 24px;">
-                  <div style="display: flex; align-items: center; gap: 16px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
                     <div style="font-size: 20px; color: #8B7E77; cursor: pointer;" id="backBtn">←</div>
                     <div style="font-size: 18px; font-weight: 600; color: #8B7E77;">
                       遗忘曲线分析
                     </div>
+                    </div>
+                    <button class="mp-btn" id="openForgetCenterBtn" style="padding: 8px 12px; background: #FFF0E2; color: #A85D4A; font-size: 12px;">🍂 遗忘中心</button>
                   </div>
                 </div>
 
@@ -2151,6 +2376,11 @@
 
             container.querySelector('#backBtn').onclick = () => {
               currentView = 'memoryPalace';
+              render();
+            };
+            container.querySelector('#openForgetCenterBtn').onclick = () => {
+              forgetFilter = 'all';
+              currentView = 'forgettingCenter';
               render();
             };
           }
