@@ -1,5 +1,5 @@
-// Roche 记忆宫殿插件 v8.0.3
-// 🔥 AI 对话集成 | 混合搜索 + 情绪启动 + 扩散激活 + 反刍检查 | 完善自动遗忘
+// Roche 记忆宫殿插件 v8.0.4
+// 只读记忆分析 | 本地相关度排序 | 艾宾浩斯保持率 | 插件内软遗忘
 
 (function() {
   'use strict';
@@ -131,13 +131,22 @@
 
     const baseStrength = 7;
     const importanceBonus = memory.importance * 2;
+    const emotionalBonus = memory.emotion && memory.emotion !== 'neutral' ? 1.5 : 0;
     const reviewBonus = (memory.reviewCount || 0) * 0.5;
-    const S = baseStrength + importanceBonus + reviewBonus;
+    const S = baseStrength + importanceBonus + emotionalBonus + reviewBonus;
 
     const effectiveDecay = 1 + (room.decayRate * 2);
     const retention = Math.exp(-daysPassed / (S / effectiveDecay));
 
     return Math.max(retention, room.decayRate === 0 ? 0.7 : 0);
+  }
+
+  // 软遗忘只作为插件内状态展示和排序依据，不删除或修改 Roche 主记忆。
+  function getSoftForgetState(memory) {
+    const retention = calculateRetention(memory);
+    if (retention < 0.1) return 'faded';
+    if (retention < 0.3) return 'fading';
+    return 'active';
   }
 
   function reinforceMemory(memory) {
@@ -189,7 +198,7 @@
     return new Date(timestamp).toLocaleDateString('zh-CN');
   }
 
-  // ============ 向量相似度计算（简化版）============
+  // ============ 本地文本相似度计算（不影响 Roche 向量召回）============
 
   function calculateVectorSimilarity(text1, text2) {
     // 简化的余弦相似度计算
@@ -221,7 +230,7 @@
     return score;
   }
 
-  // ============ 混合搜索（85%向量 + 15%关键词）============
+  // ============ 本地混合相关度（不调用 Roche 向量检索）============
 
   function hybridSearch(query, memories) {
     if (!query) return memories;
@@ -234,7 +243,7 @@
       const maxBM25 = Math.max(...memories.map(m => calculateBM25(query, m.text)), 1);
       const normalizedBM25 = bm25Score / maxBM25;
 
-      // 混合得分：85% 向量 + 15% BM25
+      // 本地相关度：词项相似度 + 关键词频次
       const finalScore = vectorScore * 0.85 + normalizedBM25 * 0.15;
 
       return { memory: mem, score: finalScore };
@@ -317,9 +326,9 @@
     return null;
   }
 
-  // ============ 自动遗忘（客厅满了后迁移）============
+  // ============ 插件内软遗忘（客厅满了后迁移）============
 
-  async function autoForget(memories, syncToRoche = false) {
+  async function autoForget(memories) {
     const livingRoomMemories = memories.filter(m => m.room === 'livingRoom');
 
     if (livingRoomMemories.length > 200) {
@@ -345,14 +354,7 @@
           atticCount++;
         }
 
-        // 如果需要同步到 Roche
-        if (syncToRoche && typeof syncMemoryToRoche === 'function') {
-          try {
-            await syncMemoryToRoche(mem);
-          } catch (err) {
-            console.error('[记忆宫殿] 自动遗忘同步失败:', err);
-          }
-        }
+        mem.softForgetState = getSoftForgetState(mem);
       }
 
       if (toMigrate.length > 0) {
@@ -365,10 +367,12 @@
 
   // ============ 主插件 ============
 
+  let persistOnUnmount = null;
+
   window.RochePlugin.register({
     id: 'memory-palace',
     name: '记忆宫殿',
-    version: '8.0.3',
+    version: '8.0.4',
     apps: [
       {
         id: 'memory-palace-home',
@@ -450,67 +454,21 @@
                 importance: meta.importance || detectImportance(text),
                 emotion: meta.emotion || detectEmotion(text),
                 room: meta.room || classifyMemory(text),
-                relations: meta.relations || []
+                relations: meta.relations || [],
+                softForgetState: meta.softForgetState || 'active'
               };
             });
 
-            // 应用自动遗忘（客厅水位线）- 注意：此时 syncMemoryToRoche 还未定义，所以不同步
-            memories = await autoForget(memories, false);
+            // 应用插件内自动遗忘；只保存到本插件的 storage，不触碰 Roche 主记忆。
+            memories = await autoForget(memories);
+            memories.forEach(mem => {
+              mem.softForgetState = getSoftForgetState(mem);
+            });
 
             memories.sort((a, b) => b.timestamp - a.timestamp);
 
             // 自动保存更新后的数据
             scheduleSave();
-          }
-
-          // ============ 同步到 Roche 记忆系统 ============
-
-          // 同步单条记忆到 Roche
-          async function syncMemoryToRoche(memory) {
-            try {
-              await roche.memory.update(memory.id, {
-                importance: memory.importance,
-                room: memory.room,
-                emotion: memory.emotion,
-                reviewCount: memory.reviewCount,
-                lastRecall: memory.lastRecall,
-                relations: memory.relations
-              });
-              console.log(`[记忆宫殿] 已同步记忆 ${memory.id} 到 Roche`);
-            } catch (err) {
-              console.error(`[记忆宫殿] 同步记忆失败:`, memory.id, err);
-            }
-          }
-
-          // 批量同步所有记忆到 Roche
-          async function syncAllMemoriesToRoche() {
-            if (!memories || memories.length === 0) {
-              roche.ui.toast('没有需要同步的记忆');
-              return;
-            }
-
-            try {
-              let successCount = 0;
-              let failCount = 0;
-
-              for (const mem of memories) {
-                try {
-                  await syncMemoryToRoche(mem);
-                  successCount++;
-                } catch (err) {
-                  failCount++;
-                }
-              }
-
-              if (failCount === 0) {
-                roche.ui.toast(`✅ 成功同步 ${successCount} 条记忆到 Roche`);
-              } else {
-                roche.ui.toast(`⚠️ 同步完成：成功 ${successCount} 条，失败 ${failCount} 条`);
-              }
-            } catch (err) {
-              console.error('[记忆宫殿] 批量同步失败:', err);
-              roche.ui.toast('❌ 同步失败，请查看控制台');
-            }
           }
 
           async function saveMemoryMeta() {
@@ -523,7 +481,8 @@
                 importance: mem.importance,
                 emotion: mem.emotion,
                 room: mem.room,
-                relations: mem.relations
+                relations: mem.relations,
+                softForgetState: getSoftForgetState(mem)
               };
             });
             await roche.storage.set(`memoryMeta:${selectedConvId}`, meta);
@@ -562,7 +521,7 @@
 
           function searchMemories(query) {
             if (!query) return memories;
-            // 使用混合搜索（85%向量 + 15%BM25）
+            // 使用插件内本地相关度排序；Roche 原生向量召回保持不变。
             return hybridSearch(query, memories);
           }
 
@@ -912,7 +871,7 @@
                           ">${getSvgIcon('lightbulb', 22)}</div>
                           <div>
                             <div style="font-size: 15px; font-weight: 700; color: #3D3633; margin-bottom: 2px;">记忆宫殿</div>
-                            <div style="font-size: 12px; color: rgba(107, 95, 88, 0.5);">七房间空间模型·向量检索</div>
+                        <div style="font-size: 12px; color: rgba(107, 95, 88, 0.5);">七房间模型·只读记忆分析</div>
                           </div>
                         </div>
                         <div class="mp-toggle" data-conv-id="${conv.id}" data-type="palace" style="
@@ -1086,46 +1045,6 @@
                     " id="viewEventsBtn">
                       <span style="font-size: 16px;">📦</span>
                       <span>查看事件盒</span>
-                    </div>
-                    <div class="mp-btn" style="
-                      background: linear-gradient(135deg, rgba(232, 180, 184, 0.95) 0%, rgba(201, 168, 184, 0.95) 50%, rgba(184, 161, 201, 0.95) 100%);
-                      color: white;
-                      border: none;
-                      white-space: nowrap;
-                      font-weight: 700;
-                      border-radius: 28px;
-                      padding: 16px 28px;
-                      box-shadow: 0 8px 24px rgba(232, 180, 184, 0.35), 0 2px 8px rgba(184, 161, 201, 0.25);
-                      display: flex;
-                      align-items: center;
-                      gap: 10px;
-                      position: relative;
-                      overflow: hidden;
-                      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-                      backdrop-filter: blur(10px);
-                      -webkit-backdrop-filter: blur(10px);
-                    " id="syncToRocheBtn"
-                    onmouseover="
-                      this.style.transform='translateY(-3px)';
-                      this.style.boxShadow='0 12px 32px rgba(232, 180, 184, 0.45), 0 4px 12px rgba(184, 161, 201, 0.35)';
-                    "
-                    onmouseout="
-                      this.style.transform='translateY(0)';
-                      this.style.boxShadow='0 8px 24px rgba(232, 180, 184, 0.35), 0 2px 8px rgba(184, 161, 201, 0.25)';
-                    "
-                    onmousedown="this.style.transform='translateY(0) scale(0.96)'"
-                    onmouseup="this.style.transform='translateY(-3px) scale(1)'">
-                      <span style="
-                        font-size: 20px;
-                        display: inline-block;
-                        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
-                      ">🔄</span>
-                      <span style="
-                        font-size: 15px;
-                        letter-spacing: 0.8px;
-                        text-shadow: 0 2px 4px rgba(139, 95, 88, 0.15);
-                        font-weight: 700;
-                      ">同步到 Roche</span>
                     </div>
                   </div>
 
@@ -1368,19 +1287,6 @@
             container.querySelector('#viewEventsBtn').onclick = () => {
               currentView = 'eventBox';
               render();
-            };
-
-            // 🔥 同步到 Roche 按钮
-            container.querySelector('#syncToRocheBtn').onclick = async () => {
-              const confirmSync = await roche.ui.confirm({
-                title: '同步记忆到 Roche',
-                message: `即将把 ${memories.length} 条记忆的元数据（重要性、房间、情绪、复习次数）同步到 Roche 系统，AI 对话时将能感知这些数据。确定继续？`
-              });
-
-              if (confirmSync) {
-                roche.ui.toast('🔄 正在同步...');
-                await syncAllMemoriesToRoche();
-              }
             };
 
             // 快速搜索功能
@@ -1636,11 +1542,8 @@
                 if (mem) {
                   reinforceMemory(mem);
 
-                  // 🔥 重要操作：立即同步到 Roche（复习次数和时间）
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 记忆已巩固！已同步到 Roche');
+                  roche.ui.toast('✨ 记忆已巩固（仅更新插件评分）');
                   render();
                 }
               };
@@ -1845,11 +1748,8 @@
                   mem.accessCount = (mem.accessCount || 0) + 1;
                   reinforceMemory(mem);
 
-                  // 🔥 立即同步到 Roche
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 记忆已巩固！已同步到 Roche');
+                  roche.ui.toast('✨ 记忆已巩固（仅更新插件评分）');
                   render();
                 }
               };
@@ -1969,11 +1869,8 @@
                   mem.accessCount = (mem.accessCount || 0) + 1;
                   reinforceMemory(mem);
 
-                  // 🔥 立即同步到 Roche
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 事件已查看！已同步到 Roche');
+                  roche.ui.toast('✨ 事件已查看（仅更新插件评分）');
                   render();
                 }
               };
@@ -2107,11 +2004,8 @@
                 if (mem) {
                   reinforceMemory(mem);
 
-                  // 🔥 立即同步到 Roche
-                  await syncMemoryToRoche(mem);
-
                   scheduleSave();
-                  roche.ui.toast('✨ 记忆已巩固！已同步到 Roche');
+                  roche.ui.toast('✨ 记忆已巩固（仅更新插件评分）');
                   render();
                 }
               };
@@ -2150,7 +2044,7 @@
                         <div style="font-size: 48px; font-weight: 700; color: #B8A1C9; margin-bottom: 8px;">
                           ${needReview}
                         </div>
-                        <div style="font-size: 14px; color: #A89A94;">需要复习</div>
+                        <div style="font-size: 14px; color: #A89A94;">低保持率（软遗忘）</div>
                       </div>
                     </div>
 
@@ -2261,249 +2155,17 @@
             };
           }
 
+          persistOnUnmount = () => scheduleSave();
           await loadConversations();
           render();
         },
         async unmount(container) {
           // 关闭窗口前保存所有记忆元数据
-          scheduleSave();
+          persistOnUnmount?.();
+          persistOnUnmount = null;
           container.replaceChildren();
         }
       }
     ],
-
-    // ============ AI 对话集成 ============
-    chat: {
-      // 每轮对话前，用记忆宫殿算法筛选记忆
-      async contextProvider(ctx) {
-        try {
-          // 获取当前会话的记忆
-          const longTerm = await roche.memory.getLongTerm({
-            conversationId: ctx.conversationId,
-            limit: 1000
-          });
-
-          const rawMemories = [
-            ...(longTerm.facts || []),
-            ...(longTerm.vectors || [])
-          ];
-
-          // 读取记忆元数据
-          const enhanced = await roche.storage.get(`memoryMeta:${ctx.conversationId}`) || {};
-
-          // 构建完整记忆对象
-          const memories = rawMemories.map(mem => {
-            const meta = enhanced[mem.id] || {};
-            const text = mem.summaryText || mem.action || mem.text || '';
-
-            return {
-              id: mem.id,
-              text: text,
-              timestamp: mem.timestamp || Date.now(),
-              lastRecall: meta.lastRecall || mem.timestamp || Date.now(),
-              reviewCount: meta.reviewCount || 0,
-              importance: meta.importance || detectImportance(text),
-              emotion: meta.emotion || detectEmotion(text),
-              room: meta.room || classifyMemory(text),
-              relations: meta.relations || []
-            };
-          });
-
-          if (memories.length === 0) {
-            return null; // 没有记忆，不注入
-          }
-
-          // 获取最近几条消息作为查询
-          const recentMessages = await roche.memory.getShortTerm({
-            conversationId: ctx.conversationId,
-            limit: 5
-          });
-
-          const queryText = recentMessages
-            .map(m => m.text || '')
-            .filter(Boolean)
-            .join(' ');
-
-          if (!queryText) {
-            return null;
-          }
-
-          // 1. 混合搜索（85% 向量 + 15% BM25）
-          const searchResults = hybridSearch(queryText, memories);
-
-          // 取前 20 条
-          const topResults = searchResults.slice(0, 20);
-
-          if (topResults.length === 0) {
-            return null;
-          }
-
-          // 2. 扩散激活（简化版：找关联记忆）
-          const activated = [];
-          const seen = new Set();
-
-          for (const mem of topResults) {
-            if (!seen.has(mem.id)) {
-              activated.push(mem);
-              seen.add(mem.id);
-            }
-
-            // 扩散到关联记忆
-            if (mem.relations && mem.relations.length > 0) {
-              for (const relId of mem.relations.slice(0, 2)) {
-                const relMem = memories.find(m => m.id === relId);
-                if (relMem && !seen.has(relMem.id)) {
-                  activated.push(relMem);
-                  seen.add(relMem.id);
-                }
-              }
-            }
-          }
-
-          // 3. 情绪启动（检测当前对话情绪）
-          const currentEmotion = detectEmotion(queryText);
-
-          const emotionBoosted = activated.map(mem => {
-            let score = 1.0;
-
-            // 情绪匹配加权 1.3 倍
-            if (mem.emotion === currentEmotion && currentEmotion !== 'neutral') {
-              score *= 1.3;
-            }
-
-            return { ...mem, _score: score };
-          });
-
-          // 按得分排序
-          emotionBoosted.sort((a, b) => b._score - a._score);
-
-          // 4. 反刍检查（6% 概率从阁楼拉取记忆）
-          const atticMemories = memories.filter(m => m.room === 'attic');
-          if (Math.random() < 0.06 && atticMemories.length > 0) {
-            const randomAttic = atticMemories[Math.floor(Math.random() * atticMemories.length)];
-            emotionBoosted.unshift(randomAttic);
-          }
-
-          // 5. 格式化输出给 AI
-          const finalMemories = emotionBoosted.slice(0, 15);
-
-          if (finalMemories.length === 0) {
-            return null;
-          }
-
-          // 按房间分组
-          const byRoom = {};
-          for (const mem of finalMemories) {
-            const room = SEVEN_ROOMS[mem.room];
-            if (!byRoom[mem.room]) {
-              byRoom[mem.room] = {
-                roomName: room.name,
-                roomDesc: room.desc,
-                memories: []
-              };
-            }
-            byRoom[mem.room].memories.push(mem);
-          }
-
-          // 生成文本
-          let output = '【记忆宫殿调取的相关记忆】\n\n';
-
-          for (const [roomId, data] of Object.entries(byRoom)) {
-            output += `●${data.roomName}·${data.roomDesc}\n`;
-            for (const mem of data.memories) {
-              const date = new Date(mem.timestamp).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-              const emotionInfo = EMOTION_TYPES[mem.emotion];
-              output += `${mem.text}\n`;
-              output += `${date} | 重要性:${mem.importance} | ${emotionInfo?.name || mem.emotion}\n\n`;
-            }
-          }
-
-          console.log('[记忆宫殿] 为 AI 提供记忆:', finalMemories.length, '条');
-
-          return output;
-
-        } catch (err) {
-          console.error('[记忆宫殿] contextProvider 错误:', err);
-          return null;
-        }
-
-        // 辅助函数定义（需要在外部作用域访问）
-        function detectImportance(text) {
-          if (!text) return 3;
-          if (/第一次|重要|关键|决定|承诺/.test(text)) return 8;
-          if (/喜欢|讨厌|总是|从不/.test(text)) return 6;
-          return 4;
-        }
-
-        function detectEmotion(text) {
-          if (/委屈|不公平|凭什么/.test(text)) return 'hurt';
-          if (/开心|高兴|哈哈|棒|兴奋/.test(text)) return 'joy';
-          if (/难过|伤心|哭|失落/.test(text)) return 'sadness';
-          if (/生气|愤怒|烦|讨厌/.test(text)) return 'anger';
-          if (/害怕|担心|恐惧/.test(text)) return 'fear';
-          if (/焦虑|紧张|不安/.test(text)) return 'anxiety';
-          if (/温暖|感动|幸福|甜蜜/.test(text)) return 'warmth';
-          return 'neutral';
-        }
-
-        function classifyMemory(text) {
-          if (/喜欢|爱|想念|温暖|抱|亲|感动/.test(text)) return 'bedroom';
-          if (/学习|工作|技能|教|懂|理解|项目/.test(text)) return 'study';
-          if (/习惯|总是|经常|喜欢吃|讨厌|偏好/.test(text)) return 'userRoom';
-          if (/我是|我觉得自己|我想成为|自我/.test(text)) return 'selfRoom';
-          if (/不确定|困惑|不知道|纠结|心结|矛盾/.test(text)) return 'attic';
-          if (/想要|希望|期待|以后|未来|憧憬/.test(text)) return 'windowSill';
-          return 'livingRoom';
-        }
-
-        function hybridSearch(query, memories) {
-          if (!query) return memories;
-
-          const results = memories.map(mem => {
-            const vectorScore = calculateVectorSimilarity(query, mem.text);
-            const bm25Score = calculateBM25(query, mem.text);
-
-            const maxBM25 = Math.max(...memories.map(m => calculateBM25(query, m.text)), 1);
-            const normalizedBM25 = bm25Score / maxBM25;
-
-            const finalScore = vectorScore * 0.85 + normalizedBM25 * 0.15;
-
-            return { memory: mem, score: finalScore };
-          });
-
-          return results
-            .filter(r => r.score > 0.1)
-            .sort((a, b) => b.score - a.score)
-            .map(r => r.memory);
-        }
-
-        function calculateVectorSimilarity(text1, text2) {
-          const words1 = text1.toLowerCase().match(/[一-龥a-z]+/g) || [];
-          const words2 = text2.toLowerCase().match(/[一-龥a-z]+/g) || [];
-
-          const set1 = new Set(words1);
-          const set2 = new Set(words2);
-          const intersection = new Set([...set1].filter(x => set2.has(x)));
-
-          if (set1.size === 0 || set2.size === 0) return 0;
-          return intersection.size / Math.sqrt(set1.size * set2.size);
-        }
-
-        function calculateBM25(query, text) {
-          const queryWords = query.toLowerCase().match(/[一-龥a-z]+/g) || [];
-          const textWords = text.toLowerCase().match(/[一-龥a-z]+/g) || [];
-
-          let score = 0;
-          queryWords.forEach(qw => {
-            const freq = textWords.filter(tw => tw === qw).length;
-            if (freq > 0) {
-              score += Math.log(1 + freq);
-            }
-          });
-
-          return score;
-        }
-      }
-    }
   });
 })();
