@@ -2,7 +2,7 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.0.2";
+  const PLUGIN_VERSION = "9.0.4";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
@@ -1010,6 +1010,96 @@
     }
   }
 
+  function resolveEmbeddingModelsEndpoint(endpoint, modelsEndpoint) {
+    const source = String(endpoint || "").trim();
+    const explicit = String(modelsEndpoint || "").trim();
+    if (!source && !explicit) {
+      return "";
+    }
+    try {
+      if (explicit) {
+        const base = source || (typeof window !== "undefined" && window.location && window.location.href) || "http://localhost/";
+        return new URL(explicit, base).toString();
+      }
+      const url = new URL(source);
+      const pathname = url.pathname.replace(/\/+$/, "");
+      if (/\/api\/embeddings$/i.test(pathname)) {
+        url.pathname = pathname.replace(/\/embeddings$/i, "/tags");
+      } else if (/\/(embeddings|embed)$/i.test(pathname)) {
+        url.pathname = pathname.replace(/\/(embeddings|embed)$/i, "/models");
+      } else if (!/\/models$/i.test(pathname)) {
+        url.pathname = pathname + "/models";
+      }
+      url.search = "";
+      url.hash = "";
+      return url.toString();
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function modelIdFromRecord(record) {
+    if (typeof record === "string") {
+      return record.trim();
+    }
+    if (!record || typeof record !== "object") {
+      return "";
+    }
+    const candidates = [record.id, record.name, record.model, record.modelName];
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (typeof candidates[index] === "string" && candidates[index].trim()) {
+        return candidates[index].trim();
+      }
+    }
+    return "";
+  }
+
+  function extractEmbeddingModels(payload) {
+    const records = Array.isArray(payload)
+      ? payload
+      : payload && Array.isArray(payload.data)
+        ? payload.data
+        : payload && Array.isArray(payload.models)
+          ? payload.models
+          : payload && Array.isArray(payload.items)
+            ? payload.items
+            : [];
+    return unique(records.map(modelIdFromRecord).filter(Boolean)).sort(function (a, b) {
+      return a.localeCompare(b);
+    });
+  }
+
+  async function requestEmbeddingModels(endpoint, apiKey, modelsEndpoint) {
+    const url = resolveEmbeddingModelsEndpoint(endpoint, modelsEndpoint);
+    if (!url) {
+      return { ok: false, models: [], message: "请先填写有效的 embedding 接口地址或模型列表地址" };
+    }
+    if (typeof fetch !== "function") {
+      return { ok: false, models: [], message: "当前环境不支持网络请求" };
+    }
+    try {
+      const headers = {};
+      if (apiKey) {
+        headers.Authorization = "Bearer " + apiKey;
+      }
+      const response = await fetch(url, {
+        method: "GET",
+        headers: headers
+      });
+      if (!response.ok) {
+        return { ok: false, models: [], url: url, message: "模型接口返回 HTTP " + response.status };
+      }
+      const payload = await response.json();
+      const models = extractEmbeddingModels(payload);
+      if (!models.length) {
+        return { ok: false, models: [], url: url, message: "接口响应中没有找到模型列表" };
+      }
+      return { ok: true, models: models, url: url, message: "已拉取 " + models.length + " 个模型" };
+    } catch (error) {
+      return { ok: false, models: [], url: url, message: "模型接口请求失败，请检查地址、Key 或跨域设置" };
+    }
+  }
+
   async function rankMemoriesWithHost(api, conversationId, query, memories) {
     const hostResults = await callHostSearch(api, conversationId, query, 80);
     const byId = new Map(memories.map(function (memory) { return [String(memory.id), memory]; }));
@@ -1597,6 +1687,11 @@
     ".mp-field{display:grid;gap:6px;}",
     ".mp-field label{color:var(--muted);font-size:11px;}",
     ".mp-field input,.mp-field select,.mp-field textarea{width:100%;border:1px solid #dcd2cf;border-radius:8px;background:#fff;color:var(--ink);padding:10px 11px;font:inherit;font-size:12px;outline:0;}",
+    ".mp-input-action{display:flex;align-items:center;gap:8px;min-width:0;}",
+    ".mp-input-action input{min-width:0;flex:1 1 auto;}",
+    ".mp-input-action .mp-button{flex:0 0 auto;white-space:nowrap;}",
+    ".mp-model-picker{color:var(--muted);}",
+    ".mp-field-note{color:#aaa09e;font-size:10px;line-height:1.5;}",
     ".mp-field textarea{min-height:110px;resize:vertical;line-height:1.6;}",
     ".mp-field input:focus,.mp-field select:focus,.mp-field textarea:focus{border-color:#9b8eaa;box-shadow:0 0 0 3px #eee8f0;}",
     ".mp-help{padding:13px 15px;border-left:3px solid #9b8eaa;background:#f1ebf2;color:#706671;font-size:11px;line-height:1.7;}",
@@ -1648,7 +1743,7 @@
     ".mp-switch input:checked+span::after{transform:translateX(18px);}",
     ".mp-switch input:focus-visible+span{box-shadow:0 0 0 3px #eee8f0;}",
     "mark{padding:0 2px;border-radius:2px;background:#f0dfc2;color:inherit;}",
-    "@media (max-width:760px){.mp-shell{padding:20px 15px 38px}.mp-topbar{margin-bottom:22px}.mp-hero{display:block}.mp-stats{margin-top:20px;gap:18px}.mp-room-grid,.mp-character-grid{grid-template-columns:1fr}.mp-insight{grid-template-columns:1fr}.mp-insight-copy{border-right:0;border-bottom:1px solid var(--line)}.mp-due-list{grid-template-columns:1fr}.mp-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mp-form-row{grid-template-columns:1fr}.mp-memory-bottom{align-items:flex-start;flex-direction:column;gap:8px}.mp-actions{gap:5px}.mp-button{padding:0 10px}}"
+    "@media (max-width:760px){.mp-shell{padding:20px 15px 38px}.mp-topbar{margin-bottom:22px}.mp-hero{display:block}.mp-stats{margin-top:20px;gap:18px}.mp-room-grid,.mp-character-grid{grid-template-columns:1fr}.mp-insight{grid-template-columns:1fr}.mp-insight-copy{border-right:0;border-bottom:1px solid var(--line)}.mp-due-list{grid-template-columns:1fr}.mp-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mp-form-row{grid-template-columns:1fr}.mp-memory-bottom{align-items:flex-start;flex-direction:column;gap:8px}.mp-actions{gap:5px}.mp-button{padding:0 10px}.mp-input-action{align-items:stretch;flex-wrap:wrap}.mp-input-action input{flex-basis:100%}.mp-input-action .mp-button{width:100%}}"
   ].join("");
 
   function renderRoomIcon(roomId) {
@@ -1763,6 +1858,8 @@
     let descending = true;
     let selectedMemoryId = null;
     let embeddingConfig = {};
+    let embeddingModels = [];
+    let embeddingModelsMessage = "";
     let chatMemoryEnabled = true;
     let refreshTimer = null;
     let saveTimer = null;
@@ -1962,6 +2059,64 @@
 
     function iconButton(action, icon, title) {
       return '<button class="mp-icon-button" data-action="' + escapeAttr(action) + '" title="' + escapeAttr(title) + '">' + getSvgIcon(icon, 17) + "</button>";
+    }
+
+    function renderEmbeddingModelOptions(currentModel) {
+      const selected = String(currentModel || "");
+      const options = ['<option value="">选择已拉取模型</option>'];
+      embeddingModels.forEach(function (model) {
+        options.push('<option value="' + escapeAttr(model) + '"' + (model === selected ? " selected" : "") + ">" + escapeHtml(model) + "</option>");
+      });
+      return options.join("");
+    }
+
+    function updateEmbeddingModelPicker(currentModel) {
+      const picker = root.querySelector("#mp-embedding-model-picker");
+      if (!picker) {
+        return;
+      }
+      picker.innerHTML = renderEmbeddingModelOptions(currentModel);
+      picker.disabled = !embeddingModels.length;
+      if (currentModel && embeddingModels.indexOf(currentModel) >= 0) {
+        picker.value = currentModel;
+      }
+    }
+
+    async function loadEmbeddingModels() {
+      const endpointInput = root.querySelector("#mp-embedding-endpoint");
+      const modelsEndpointInput = root.querySelector("#mp-embedding-models-endpoint");
+      const keyInput = root.querySelector("#mp-embedding-key");
+      const status = root.querySelector("#mp-embedding-model-status");
+      const button = root.querySelector('[data-action="fetch-embedding-models"]');
+      const endpoint = String(endpointInput && endpointInput.value || "").trim();
+      const modelsEndpoint = String(modelsEndpointInput && modelsEndpointInput.value || "").trim();
+      const apiKey = String(keyInput && keyInput.value || "").trim();
+      if (button) {
+        button.disabled = true;
+      }
+      if (status) {
+        status.textContent = "正在拉取模型列表…";
+      }
+      const result = await requestEmbeddingModels(endpoint, apiKey, modelsEndpoint);
+      if (result.ok) {
+        embeddingModels = result.models;
+        embeddingModelsMessage = result.message;
+        const modelInput = root.querySelector("#mp-embedding-model");
+        updateEmbeddingModelPicker(String(modelInput && modelInput.value || "").trim());
+        notify(result.message);
+      } else {
+        embeddingModelsMessage = result.message;
+        if (status) {
+          status.textContent = result.message;
+        }
+        notify(result.message);
+      }
+      if (button) {
+        button.disabled = false;
+      }
+      if (status && result.ok) {
+        status.textContent = result.message;
+      }
     }
 
     function renderSelectPage() {
@@ -2168,6 +2323,7 @@
 
     function renderSettingsPage() {
       const config = embeddingConfig || {};
+      const modelStatus = embeddingModelsMessage || (embeddingModels.length ? "已准备 " + embeddingModels.length + " 个模型" : "点击“拉取模型”获取可选列表，也可以直接手动输入");
       return '<div class="mp-shell">' +
         renderHeader({ backAction: selectedConversationId ? "back-palace" : "back-select", backLabel: selectedConversationId ? "回到宫殿" : "选择角色", actions: "" }) +
         '<section class="mp-hero"><div><div class="mp-kicker">GLOBAL RETRIEVAL SETTINGS</div><h1 class="mp-h1">通用检索设置</h1><p class="mp-lede">这里的 embedding 配置和聊天参与开关对所有角色和所有记忆宫殿生效，不需要逐个角色重复设置。</p></div></section>' +
@@ -2175,7 +2331,8 @@
         '<div class="mp-setting-line"><div class="mp-setting-copy"><strong>参与聊天记忆</strong><span>关闭后仍可管理、搜索和维护记忆，但不会把记忆注入聊天，也不会执行记忆工具。</span></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div>' +
         '<label class="mp-toggle"><input id="mp-embedding-enabled" type="checkbox"' + (config.enabled ? " checked" : "") + ">启用外部嵌入</label>" +
         '<div class="mp-field"><label for="mp-embedding-endpoint">嵌入接口地址</label><input id="mp-embedding-endpoint" value="' + escapeAttr(config.endpoint || "") + '" placeholder="https://.../embeddings"></div>' +
-        '<div class="mp-form-row"><div class="mp-field"><label for="mp-embedding-model">模型</label><input id="mp-embedding-model" value="' + escapeAttr(config.model || "text-embedding-3-small") + '"></div><div class="mp-field"><label for="mp-embedding-key">API Key</label><input id="mp-embedding-key" type="password" value="' + escapeAttr(config.apiKey || "") + '"></div></div>' +
+        '<div class="mp-field"><label for="mp-embedding-models-endpoint">模型列表接口地址（可选）</label><input id="mp-embedding-models-endpoint" value="' + escapeAttr(config.modelsEndpoint || "") + '" placeholder="留空自动推断 /models；Ollama 可填 /api/tags"></div>' +
+        '<div class="mp-form-row"><div class="mp-field"><label for="mp-embedding-model">模型</label><div class="mp-input-action"><input id="mp-embedding-model" value="' + escapeAttr(config.model || "text-embedding-3-small") + '">' + actionButton("fetch-embedding-models", "拉取模型", "refresh", "", "从模型列表接口获取可选模型") + "</div><select id=\"mp-embedding-model-picker\" class=\"mp-model-picker\"" + (embeddingModels.length ? "" : " disabled") + ">" + renderEmbeddingModelOptions(config.model || "text-embedding-3-small") + '</select><span id="mp-embedding-model-status" class="mp-field-note">' + escapeHtml(modelStatus) + "</span></div><div class=\"mp-field\"><label for=\"mp-embedding-key\">API Key</label><input id=\"mp-embedding-key\" type=\"password\" value=\"" + escapeAttr(config.apiKey || "") + '"></div></div>' +
         '<div class="mp-help">外部嵌入会把每次检索问题发送到你填写的 embedding 服务，由它转换成向量；只有与已有记忆向量维度匹配时才参与语义排序。关闭或没有接口地址时，不发送外部请求，改用本地语义近似和 Roche 宿主搜索。API Key 只保存在插件隔离存储中，但检索文字仍会发送给该服务。</div>' +
         '<div>' + actionButton("save-settings", "保存检索设置", "check", "primary") + "</div></div></div></div></div>";
     }
@@ -2327,11 +2484,13 @@
     async function saveEmbeddingSettings() {
       const enabled = Boolean(root.querySelector("#mp-embedding-enabled") && root.querySelector("#mp-embedding-enabled").checked);
       const endpoint = String(root.querySelector("#mp-embedding-endpoint") && root.querySelector("#mp-embedding-endpoint").value || "").trim();
+      const modelsEndpoint = String(root.querySelector("#mp-embedding-models-endpoint") && root.querySelector("#mp-embedding-models-endpoint").value || "").trim();
       const model = String(root.querySelector("#mp-embedding-model") && root.querySelector("#mp-embedding-model").value || "").trim();
       const apiKey = String(root.querySelector("#mp-embedding-key") && root.querySelector("#mp-embedding-key").value || "").trim();
       embeddingConfig = {
         enabled: enabled && Boolean(endpoint),
         endpoint: endpoint,
+        modelsEndpoint: modelsEndpoint,
         model: model || "text-embedding-3-small",
         apiKey: apiKey
       };
@@ -2492,6 +2651,8 @@
         reviewSelected("good").catch(function () { notify("强化失败"); });
       } else if (action === "save-memory-detail") {
         saveDetail().catch(function () { notify("保存失败"); });
+      } else if (action === "fetch-embedding-models") {
+        loadEmbeddingModels().catch(function () { notify("拉取模型失败"); });
       } else if (action === "save-settings") {
         saveEmbeddingSettings().catch(function () { notify("设置保存失败"); });
       }
@@ -2508,6 +2669,13 @@
     }
 
     function handleChange(event) {
+      if (event.target && event.target.id === "mp-embedding-model-picker") {
+        const modelInput = root.querySelector("#mp-embedding-model");
+        if (modelInput && event.target.value) {
+          modelInput.value = event.target.value;
+        }
+        return;
+      }
       if (event.target && event.target.id === "mp-chat-memory-enabled") {
         saveChatMemorySetting(event.target.checked).catch(function () { notify("聊天记忆开关保存失败"); });
         return;
@@ -2855,7 +3023,10 @@
       isDeleteEligible: isDeleteEligible,
       buildRelationGraph: buildRelationGraph,
       buildEventGroups: buildEventGroups,
-      applyMemoryMaintenance: applyMemoryMaintenance
+      applyMemoryMaintenance: applyMemoryMaintenance,
+      resolveEmbeddingModelsEndpoint: resolveEmbeddingModelsEndpoint,
+      extractEmbeddingModels: extractEmbeddingModels,
+      requestEmbeddingModels: requestEmbeddingModels
     };
   }
 
