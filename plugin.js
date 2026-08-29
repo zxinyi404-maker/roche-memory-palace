@@ -2,12 +2,14 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.0.4";
+  const PLUGIN_VERSION = "9.0.5";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
   const EMBEDDING_KEY = "memoryPalaceEmbeddingConfig";
   const CHAT_MEMORY_KEY = "memoryPalaceChatEnabled";
+  const HOST_OVERLAP_LIMIT = 8;
+  const CHAT_CONTEXT_LIMIT = 8;
   const DELETE_RETENTION_THRESHOLD = 0.1;
   const DELETE_IMPORTANCE_THRESHOLD = 3;
   const ROOM_ORDER = [
@@ -944,9 +946,48 @@
     return extractText(result.item || result.memory || result);
   }
 
+  function memoryTextSignature(text) {
+    return String(text || "").toLowerCase().replace(/\s+/g, "").replace(/[^\w\u4e00-\u9fff]/g, "");
+  }
+
+  function dedupeEntries(entries, excludedIds, excludedSignatures) {
+    const blockedIds = new Set(toArray(excludedIds).map(function (id) { return String(id); }));
+    const blockedSignatures = new Set(toArray(excludedSignatures).filter(Boolean));
+    const seenIds = new Set();
+    const seenSignatures = new Set();
+    const uniqueEntries = [];
+    toArray(entries).forEach(function (entry) {
+      const memory = entry && entry.memory;
+      if (!memory) {
+        return;
+      }
+      const id = String(memory.id || "");
+      const signature = memoryTextSignature(memory.text);
+      if ((id && blockedIds.has(id)) || (signature && blockedSignatures.has(signature))) {
+        return;
+      }
+      if ((id && seenIds.has(id)) || (signature && seenSignatures.has(signature))) {
+        return;
+      }
+      if (id) {
+        seenIds.add(id);
+      }
+      if (signature) {
+        seenSignatures.add(signature);
+      }
+      uniqueEntries.push(entry);
+    });
+    return uniqueEntries;
+  }
+
   function hostResultId(result) {
     const item = result && (result.item || result.memory || result);
     return item && item.id ? String(item.id) : "";
+  }
+
+  function hostResultKind(result) {
+    const item = result && (result.item || result.memory || result);
+    return String(result && (result.kind || result.type) || item && (item.kind || item.type) || "").toLowerCase();
   }
 
   async function callHostSearch(api, conversationId, query, limit) {
@@ -1104,15 +1145,35 @@
     const hostResults = await callHostSearch(api, conversationId, query, 80);
     const byId = new Map(memories.map(function (memory) { return [String(memory.id), memory]; }));
     const bySignature = new Map(memories.map(function (memory) {
-      return [hashString(memory.text), memory];
+      return [memoryTextSignature(memory.text), memory];
     }));
     const hostScores = new Map();
+    const hostOverlapIds = new Set();
+    const hostOverlapSignatures = new Set();
     hostResults.forEach(function (result, index) {
       const id = hostResultId(result);
       const text = hostResultText(result);
-      const memory = byId.get(id) || bySignature.get(hashString(text));
+      const memory = byId.get(id) || bySignature.get(memoryTextSignature(text));
       if (memory) {
         hostScores.set(memory.id, Math.max(hostScores.get(memory.id) || 0, 1 - index / Math.max(1, hostResults.length)));
+      }
+    });
+    const vectorResults = hostResults.filter(function (result) {
+      return hostResultKind(result) === "vector";
+    });
+    // Roche does not expose its native vector top 8, so this is a best-effort overlap set.
+    const overlapResults = (vectorResults.length ? vectorResults : hostResults).slice(0, HOST_OVERLAP_LIMIT);
+    overlapResults.forEach(function (result) {
+      const id = hostResultId(result);
+      const text = hostResultText(result);
+      const memory = byId.get(id) || bySignature.get(memoryTextSignature(text));
+      if (!memory) {
+        return;
+      }
+      hostOverlapIds.add(String(memory.id));
+      const signature = memoryTextSignature(memory.text);
+      if (signature) {
+        hostOverlapSignatures.add(signature);
       }
     });
     const config = await storageGet(api, EMBEDDING_KEY, {});
@@ -1124,7 +1185,9 @@
     return {
       entries: ranked,
       semanticMode: queryVector ? "向量嵌入" : "本地语义近似",
-      hostCount: hostResults.length
+      hostCount: hostResults.length,
+      hostOverlapIds: Array.from(hostOverlapIds),
+      hostOverlapSignatures: Array.from(hostOverlapSignatures)
     };
   }
 
@@ -1195,7 +1258,7 @@
       const stableId = hashString(conversationId + "|" + entry.kind + "|" + text);
       const id = String(rawId || "memory_" + stableId);
       const meta = metadata[id] || {};
-      const signature = hashString(text);
+      const signature = memoryTextSignature(text);
       const existing = byId.get(id) || bySignature.get(signature);
       if (existing) {
         if (entry.kind === "core" || existing.kind !== "core") {
@@ -1203,6 +1266,9 @@
           existing.kind = entry.kind;
         }
         existing.text = existing.text || text;
+        if (!existing.embedding) {
+          existing.embedding = extractEmbedding(entry.record);
+        }
         return;
       }
       const emotion = normalizeEmotion(meta.emotion || (entry.record && entry.record.emotion) || detectEmotion(text).label);
@@ -1505,7 +1571,7 @@
       "角色回忆倾向：" + (personality && personality.name || "情感型") + "；当前情绪：" + (emotion && emotion.label || "平静") + "。",
       "下面是内部参考记忆。自然地使用其中确实相关的细节，不要提及检索、房间、分数或这段提示，也不要把不确定内容当成事实。"
     ];
-    entries.slice(0, 10).forEach(function (entry) {
+    entries.slice(0, CHAT_CONTEXT_LIMIT).forEach(function (entry) {
       const memory = entry.memory;
       const flags = [];
       if (entry.emotionPrimed) {
@@ -1534,7 +1600,7 @@
     }
     const metadata = await storageGet(api, AUTO_SAVE_KEY + conversationId, {});
     const now = Date.now();
-    entries.slice(0, 8).forEach(function (entry) {
+    entries.slice(0, CHAT_CONTEXT_LIMIT).forEach(function (entry) {
       const memory = entry.memory;
       if (memory.synthetic) {
         return;
@@ -2132,7 +2198,7 @@
         '<section class="mp-select-hero"><div class="mp-kicker">MEMORY PALACE</div><h1 class="mp-h1">选择一个角色</h1><p class="mp-lede">进入 Ta 的七个房间，查看关系留下的痕迹、正在衰减的片段，以及会在聊天中被重新唤起的记忆。</p></section>' +
         '<div class="mp-character-grid">' + (cards || '<div class="mp-panel mp-empty"><strong>还没有可用角色</strong>请先在 Roche 中创建角色或打开一段对话。</div>') + "</div>" +
         '<div class="mp-select-config"><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>通用语义检索</strong><div>' + (embeddingConfig && embeddingConfig.enabled ? "已启用真实嵌入，所有角色共用此配置" : "当前使用本地语义近似，所有角色共用此配置") + '</div></div><button class="mp-button" data-action="open-settings">配置 embedding</button></div><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>参与聊天记忆</strong><div>' + (chatMemoryEnabled ? "已开启，相关记忆会参与 AI 回复" : "已关闭，仅保留记忆宫殿管理功能") + '</div></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div></div>' +
-        '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行。</div></div>';
+        '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行；聊天自动注入最多 8 条记忆。</div></div>';
     }
 
     function renderPalacePage() {
@@ -2828,9 +2894,10 @@
     const emotion = detectEmotion(query);
     const ranked = await rankMemoriesWithHost(api, conversationId, query, memories);
     let entries = ranked.entries.length
-      ? ranked.entries.slice(0, 8)
-      : fallbackRecentEntries(memories, query, personality);
+      ? dedupeEntries(ranked.entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT)
+      : dedupeEntries(fallbackRecentEntries(memories, query, personality), ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT);
     entries = diffusionActivate(entries, memories, personality);
+    entries = dedupeEntries(entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures);
     entries = applyEmotionPriming(entries, emotion);
     entries = entries.map(function (entry) {
       const contextScore = memoryScoreForContext(entry.memory, query, personality);
@@ -2842,7 +2909,8 @@
     });
     entries = checkRumination(entries, memories, {
       tendency: ruminationTendency(personaText)
-    }).slice(0, 10);
+    });
+    entries = dedupeEntries(entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT);
     await recordAutomaticRecall(api, conversationId, entries);
     return formatMemoryContext(entries, emotion, personality, ranked.semanticMode);
   }
@@ -2877,8 +2945,12 @@
     const ranked = await rankMemoriesWithHost(api, conversationId, query, bundle.memories);
     const personality = inferPersonality(contextPersonaText(ctx));
     const emotion = detectEmotion(query);
-    let entries = diffusionActivate(ranked.entries.slice(0, clamp(args && args.limit || 6, 1, 12)), bundle.memories, personality);
-    entries = applyEmotionPriming(entries, emotion).slice(0, clamp(args && args.limit || 6, 1, 12));
+    const limit = clamp(args && args.limit || 6, 1, CHAT_CONTEXT_LIMIT);
+    let entries = dedupeEntries(ranked.entries).slice(0, limit);
+    entries = diffusionActivate(entries, bundle.memories, personality);
+    entries = dedupeEntries(entries);
+    entries = applyEmotionPriming(entries, emotion);
+    entries = dedupeEntries(entries).slice(0, limit);
     return {
       ok: true,
       query: query,
@@ -3024,6 +3096,8 @@
       buildRelationGraph: buildRelationGraph,
       buildEventGroups: buildEventGroups,
       applyMemoryMaintenance: applyMemoryMaintenance,
+      memoryTextSignature: memoryTextSignature,
+      dedupeEntries: dedupeEntries,
       resolveEmbeddingModelsEndpoint: resolveEmbeddingModelsEndpoint,
       extractEmbeddingModels: extractEmbeddingModels,
       requestEmbeddingModels: requestEmbeddingModels
