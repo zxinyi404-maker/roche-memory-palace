@@ -7,6 +7,8 @@
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
   const EMBEDDING_KEY = "memoryPalaceEmbeddingConfig";
+  const DELETE_RETENTION_THRESHOLD = 0.1;
+  const DELETE_IMPORTANCE_THRESHOLD = 3;
   const ROOM_ORDER = [
     "livingRoom",
     "bedroom",
@@ -568,6 +570,19 @@
     return Boolean(next && next <= Date.now());
   }
 
+  function isDeleteEligible(memory) {
+    const room = ROOM_RULES[normalizeRoomId(memory && memory.room) || "livingRoom"];
+    return Boolean(
+      memory &&
+      !memory.synthetic &&
+      room &&
+      room.decay &&
+      !memory.anchor &&
+      retentionAt(memory, 0) <= DELETE_RETENTION_THRESHOLD &&
+      Number(memory.importance) <= DELETE_IMPORTANCE_THRESHOLD
+    );
+  }
+
   function reinforceMemory(memory, quality) {
     if (!memory || memory.synthetic) {
       return memory;
@@ -1041,6 +1056,8 @@
       anchor: Boolean(memory.anchor),
       faded: Boolean(memory.faded),
       migratedFrom: memory.migratedFrom || null,
+      pendingDelete: Boolean(memory.pendingDelete),
+      deleteDismissed: Boolean(memory.deleteDismissed),
       updatedAt: Date.now()
     };
   }
@@ -1126,6 +1143,8 @@
         anchor: Boolean(meta.anchor || entry.record && entry.record.anchor),
         faded: Boolean(meta.faded),
         migratedFrom: meta.migratedFrom || null,
+        pendingDelete: Boolean(meta.pendingDelete),
+        deleteDismissed: Boolean(meta.deleteDismissed),
         embedding: extractEmbedding(entry.record)
       };
       memory.tokens = tokenize(memory.text);
@@ -1175,6 +1194,13 @@
           memory.faded = faded;
           changed = true;
         }
+      }
+      if (memory.pendingDelete && !memory.deleteDismissed && !isDeleteEligible(memory)) {
+        memory.pendingDelete = false;
+        changed = true;
+      } else if (!memory.pendingDelete && !memory.deleteDismissed && isDeleteEligible(memory)) {
+        memory.pendingDelete = true;
+        changed = true;
       }
       const text = memory.text;
       if (memory.room === "attic" && /释然|想通了|已经解决|放下了/.test(text)) {
@@ -1522,6 +1548,7 @@
     ".mp-pill.room{color:var(--ink);}",
     ".mp-pill.due{background:#f3e2e1;color:#9d686d;}",
     ".mp-pill.anchor{background:#f2ead7;color:#8b7547;}",
+    ".mp-pill.delete{background:#f4dfdf;color:#9b5f63;}",
     ".mp-memory-date{color:#9a9190;font-size:10px;white-space:nowrap;}",
     ".mp-memory-text{margin:0;color:#4a4445;font-size:13px;line-height:1.75;white-space:pre-wrap;word-break:break-word;}",
     ".mp-memory-bottom{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:13px;color:var(--muted);font-size:10px;}",
@@ -1571,6 +1598,17 @@
     ".mp-help{padding:13px 15px;border-left:3px solid #9b8eaa;background:#f1ebf2;color:#706671;font-size:11px;line-height:1.7;}",
     ".mp-toggle{display:flex;align-items:center;gap:9px;color:var(--ink);font-size:12px;cursor:pointer;}",
     ".mp-toggle input{accent-color:#9b8eaa;}",
+    ".mp-forget-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px;}",
+    ".mp-forget-stat{padding:14px;border:1px solid var(--line);border-radius:9px;background:var(--paper);}",
+    ".mp-forget-stat strong{display:block;font-family:Georgia,'Songti SC',serif;font-size:24px;font-weight:400;}",
+    ".mp-forget-stat span{display:block;margin-top:5px;color:var(--muted);font-size:10px;}",
+    ".mp-forget-list{display:grid;gap:10px;}",
+    ".mp-forget-item{padding:16px 17px;border:1px solid var(--line);border-radius:10px;background:var(--paper);}",
+    ".mp-forget-item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;}",
+    ".mp-forget-item-text{margin:10px 0 0;font-size:13px;line-height:1.75;white-space:pre-wrap;word-break:break-word;}",
+    ".mp-forget-item-meta{margin-top:10px;color:var(--muted);font-size:10px;}",
+    ".mp-forget-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px;}",
+    "@media (max-width:760px){.mp-forget-grid{grid-template-columns:1fr;}}",
     ".mp-loading{padding:60px;text-align:center;color:var(--muted);font-size:13px;}",
     ".mp-toast{position:fixed;right:22px;bottom:22px;z-index:20;max-width:320px;padding:12px 15px;border:1px solid #d5c6c1;border-radius:8px;background:#fffdfb;color:var(--ink);box-shadow:0 8px 26px rgba(71,57,53,.14);font-size:12px;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s;}",
     ".mp-toast.show{opacity:1;transform:translateY(0);}",
@@ -1666,6 +1704,7 @@
       '<span class="mp-pill">' + escapeHtml(memory.emotion || "平静") + "</span>" +
       (isDue(memory) ? '<span class="mp-pill due">待复习</span>' : "") +
       (memory.anchor ? '<span class="mp-pill anchor">心理锚点</span>' : "") +
+      (memory.pendingDelete ? '<span class="mp-pill delete">待确认删除</span>' : "") +
       tags.map(function (tag) { return '<span class="mp-pill">#' + escapeHtml(tag) + "</span>"; }).join("") +
       '</div><span class="mp-memory-date">' + escapeHtml(formatDate(memory.timestamp, true)) + "</span></div>" +
       '<p class="mp-memory-text">' + (settings.highlight ? highlightText(memory.text, settings.highlight) : escapeHtml(settings.full ? memory.text : truncate(memory.text, 260))) + "</p>" +
@@ -1944,7 +1983,7 @@
         }) +
         '<section class="mp-hero"><div><div class="mp-kicker">七房间关系空间</div><h1 class="mp-h1">' + escapeHtml(character.name || "角色") + ' 的记忆宫殿</h1><p class="mp-lede">每条记忆都有自己的房间、保持率和关联路径。重要的片段会被留下，日常片段会自然褪色，但不会从你的查看入口消失。</p></div>' +
         '<div class="mp-stats"><div class="mp-stat"><div class="mp-stat-value">' + total + '</div><div class="mp-stat-label">全部记忆</div></div><div class="mp-stat"><div class="mp-stat-value">' + events.length + '</div><div class="mp-stat-label">事件盒</div></div><div class="mp-stat"><div class="mp-stat-value">' + wishes + '</div><div class="mp-stat-label">窗台期盼</div></div><div class="mp-stat"><div class="mp-stat-value">' + due + '</div><div class="mp-stat-label">待复习</div></div></div></section>' +
-        '<div class="mp-toolbar">' + actionButton("view-all", "查看全部记忆", "grid", "primary") + actionButton("view-events", "查看事件盒", "calendar") + actionButton("view-curve", "遗忘曲线", "curve") + "</div>" +
+        '<div class="mp-toolbar">' + actionButton("view-all", "查看全部记忆", "grid", "primary") + actionButton("view-events", "查看事件盒", "calendar") + actionButton("view-curve", "遗忘曲线", "curve") + actionButton("view-forgetting", "遗忘中心", "moon") + "</div>" +
         '<div class="mp-toolbar">' + renderSearchInput("", "搜索记忆、标签、情绪...") + "</div>" +
         '<section class="mp-section"><div class="mp-section-head"><div><h2 class="mp-section-title">七个房间</h2><div class="mp-section-note">记忆按关系功能归位，点击房间查看完整内容。</div></div><span class="mp-section-note">自动维护已开启</span></div><div class="mp-room-grid">' + roomCards + "</div></section>" +
         '<section class="mp-section"><div class="mp-insight mp-panel"><div class="mp-insight-copy"><h3>今天的宫殿状态</h3><p>系统会在聊天时运行混合搜索，再沿着关联边扩散。当前角色的记忆不会只按关键词排列，而会受保持率、情绪和角色性格共同影响。</p></div><div class="mp-insight-metrics"><div class="mp-metric"><strong>' + averageRetention + '%</strong><span>平均保持率</span></div><div class="mp-metric"><strong>' + bedroom + '</strong><span>长期羁绊</span></div><div class="mp-metric"><strong>' + attic + '</strong><span>未消化片段</span></div><div class="mp-metric"><strong>' + (embeddingConfig && embeddingConfig.enabled ? "真实" : "本地") + '</strong><span>语义检索</span></div></div></div></section>' +
@@ -1988,7 +2027,7 @@
       return '<div class="mp-shell">' +
         renderHeader({ backAction: "back-palace", backLabel: "回到宫殿", actions: iconButton("refresh", "refresh", "刷新记忆") }) +
         '<section class="mp-hero"><div><div class="mp-kicker">ALL MEMORIES</div><h1 class="mp-h1">全部记忆</h1><p class="mp-lede">完整查看入口不会隐藏已褪色或已迁移的片段。</p></div><div class="mp-stats"><div class="mp-stat"><div class="mp-stat-value">' + filtered.length + '</div><div class="mp-stat-label">' + (searchQuery.trim() ? "匹配结果" : "总条数") + "</div></div></div></section>" +
-        '<div class="mp-toolbar">' + actionButton("view-events", "查看事件盒", "calendar") + actionButton("view-curve", "遗忘曲线", "curve") + "</div>" +
+        '<div class="mp-toolbar">' + actionButton("view-events", "查看事件盒", "calendar") + actionButton("view-curve", "遗忘曲线", "curve") + actionButton("view-forgetting", "遗忘中心", "moon") + "</div>" +
         renderListToolbar({ placeholder: "在全部记忆中搜索..." }) +
         renderMemoryList(items, { highlight: searchQuery, full: false, emptyTitle: searchQuery ? "没有匹配的记忆" : "还没有记忆", emptyText: searchQuery ? "换一个关键词或情绪标签试试。" : "Roche 的长期记忆会在这里汇总。" }) +
         "</div>";
@@ -2045,6 +2084,40 @@
         "</div></div>";
     }
 
+    function renderForgettingPage() {
+      const fading = memories.filter(function (memory) {
+        return !memory.pendingDelete && retentionAt(memory, 0) < 0.3 && retentionAt(memory, 0) > 0.1;
+      });
+      const faded = memories.filter(function (memory) {
+        return retentionAt(memory, 0) <= 0.1;
+      });
+      const pending = memories.filter(function (memory) {
+        return memory.pendingDelete;
+      });
+      const candidates = memories.filter(function (memory) {
+        return !memory.synthetic && (retentionAt(memory, 0) < 0.3 || memory.pendingDelete);
+      }).sort(function (a, b) {
+        return retentionAt(a, 0) - retentionAt(b, 0);
+      });
+      const list = candidates.map(function (memory) {
+        const room = ROOM_RULES[memory.room] || ROOM_RULES.livingRoom;
+        const pendingLabel = memory.pendingDelete ? '<span class="mp-pill delete">待确认删除</span>' : retentionAt(memory, 0) <= 0.1 ? '<span class="mp-pill due">已淡忘</span>' : '<span class="mp-pill">正在淡化</span>';
+        const actions = memory.pendingDelete
+          ? '<button class="mp-button danger" data-confirm-delete="' + escapeAttr(memory.id) + '">' + getSvgIcon("close", 14) + "确认删除</button><button class=\"mp-button\" data-keep-memory=\"" + escapeAttr(memory.id) + '">保留</button>'
+          : retentionAt(memory, 0) <= 0.1
+            ? '<button class="mp-button primary" data-restore-memory="' + escapeAttr(memory.id) + '">' + getSvgIcon("check", 14) + "复习并恢复</button>"
+            : '<button class="mp-button" data-open-memory="' + escapeAttr(memory.id) + '">' + getSvgIcon("chevron", 14) + "查看详情</button>";
+        return '<article class="mp-forget-item"><div class="mp-forget-item-head"><div class="mp-memory-meta"><span class="mp-pill room" style="background:' + room.soft + ";color:" + room.accent + '">' + escapeHtml(room.name) + "</span>" + pendingLabel + '</div><span class="mp-memory-date">保持率 ' + Math.round(retentionAt(memory, 0) * 100) + "%</span></div><p class=\"mp-forget-item-text\">" + escapeHtml(truncate(memory.text, 360)) + '</p><div class="mp-forget-item-meta">' + escapeHtml(formatDate(memory.timestamp, true)) + " · 重要性 " + Math.round(memory.importance) + " · 复习 " + Math.round(memory.reviewCount || 0) + " 次</div><div class=\"mp-forget-actions\">" + actions + "</div></article>";
+      }).join("");
+      return '<div class="mp-shell">' +
+        renderHeader({ backAction: "back-palace", backLabel: "回到宫殿", actions: iconButton("refresh", "refresh", "刷新遗忘状态") }) +
+        '<section class="mp-hero"><div><div class="mp-kicker">MEMORY MAINTENANCE</div><h1 class="mp-h1">遗忘中心</h1><p class="mp-lede">自动遗忘只负责计算保持率、标记褪色和提出迁移建议。永久删除始终需要你在这里二次确认。</p></div><div class="mp-stats"><div class="mp-stat"><div class="mp-stat-value">' + pending.length + '</div><div class="mp-stat-label">待确认删除</div></div></div></section>' +
+        '<div class="mp-forget-grid"><div class="mp-forget-stat"><strong>' + fading.length + '</strong><span>正在淡化</span></div><div class="mp-forget-stat"><strong>' + faded.length + '</strong><span>已淡忘</span></div><div class="mp-forget-stat"><strong>' + pending.length + '</strong><span>待确认删除</span></div></div>' +
+        '<div class="mp-help">阁楼、自我房间和带有心理锚点的窗台记忆不会进入删除候选。点击“保留”后，这条记忆不会重复进入待确认列表。</div><div style="height:14px"></div>' +
+        (list ? '<div class="mp-forget-list">' + list + "</div>" : '<div class="mp-panel mp-empty"><strong>暂时没有需要处理的记忆</strong>保持率会随时间自动更新。</div>') +
+        "</div>";
+    }
+
     function renderDetailPage() {
       const memory = memories.find(function (item) { return item.id === selectedMemoryId; });
       if (!memory) {
@@ -2098,6 +2171,8 @@
         markup = renderEventsPage();
       } else if (view === "curve") {
         markup = renderCurvePage();
+      } else if (view === "forgetting") {
+        markup = renderForgettingPage();
       } else if (view === "detail") {
         markup = renderDetailPage();
       } else if (view === "settings") {
@@ -2226,6 +2301,71 @@
       render();
     }
 
+    async function confirmDelete(memoryId) {
+      const memory = memories.find(function (item) { return item.id === memoryId; });
+      if (!memory || !isDeleteEligible(memory)) {
+        notify("这条记忆当前不满足删除条件");
+        return;
+      }
+      if (!api || !api.memory || typeof api.memory.delete !== "function") {
+        notify("当前 Roche 版本没有开放 memory.delete");
+        return;
+      }
+      if (!api.ui || typeof api.ui.confirm !== "function") {
+        notify("当前 Roche 版本没有确认弹窗，已停止删除");
+        return;
+      }
+      let confirmed = false;
+      try {
+        confirmed = await api.ui.confirm({
+          title: "永久删除 Roche 记忆",
+          message: "这会从 Roche 主记忆中删除该条记录，通常不可恢复。确认继续吗？"
+        });
+      } catch (error) {
+        confirmed = false;
+      }
+      if (!confirmed) {
+        return;
+      }
+      try {
+        await api.memory.delete(memory.id);
+        memories = memories.filter(function (item) { return item.id !== memory.id; });
+        events = buildEventGroups(memories, {});
+        await persistNow(false);
+        notify("已从 Roche 主记忆删除");
+        view = "forgetting";
+        render();
+      } catch (error) {
+        notify("删除失败，Roche 主记忆未改变");
+      }
+    }
+
+    async function keepMemory(memoryId) {
+      const memory = memories.find(function (item) { return item.id === memoryId; });
+      if (!memory) {
+        return;
+      }
+      memory.pendingDelete = false;
+      memory.deleteDismissed = true;
+      await persistNow(false);
+      notify("已保留，之后不会重复进入待确认列表");
+      render();
+    }
+
+    async function restoreMemory(memoryId) {
+      const memory = memories.find(function (item) { return item.id === memoryId; });
+      if (!memory) {
+        return;
+      }
+      memory.pendingDelete = false;
+      memory.deleteDismissed = false;
+      reinforceMemory(memory, "good");
+      await persistNow(false);
+      await syncMemoryPatch(api, memory);
+      notify("记忆已复习并恢复");
+      render();
+    }
+
     function handleClick(event) {
       const conversationTarget = event.target.closest("[data-select-conversation]");
       if (conversationTarget) {
@@ -2244,6 +2384,27 @@
         selectedMemoryId = memoryTarget.getAttribute("data-open-memory");
         view = "detail";
         render();
+        return;
+      }
+      const deleteTarget = event.target.closest("[data-confirm-delete]");
+      if (deleteTarget) {
+        confirmDelete(deleteTarget.getAttribute("data-confirm-delete")).catch(function () {
+          notify("删除失败");
+        });
+        return;
+      }
+      const keepTarget = event.target.closest("[data-keep-memory]");
+      if (keepTarget) {
+        keepMemory(keepTarget.getAttribute("data-keep-memory")).catch(function () {
+          notify("保留操作失败");
+        });
+        return;
+      }
+      const restoreTarget = event.target.closest("[data-restore-memory]");
+      if (restoreTarget) {
+        restoreMemory(restoreTarget.getAttribute("data-restore-memory")).catch(function () {
+          notify("恢复失败");
+        });
         return;
       }
       const sortTarget = event.target.closest("[data-sort]");
@@ -2274,6 +2435,9 @@
         render();
       } else if (action === "view-curve") {
         view = "curve";
+        render();
+      } else if (action === "view-forgetting") {
+        view = "forgetting";
         render();
       } else if (action === "open-settings") {
         view = "settings";
@@ -2624,6 +2788,7 @@
       checkRumination: checkRumination,
       retentionAt: retentionAt,
       nextReviewAt: nextReviewAt,
+      isDeleteEligible: isDeleteEligible,
       buildRelationGraph: buildRelationGraph,
       buildEventGroups: buildEventGroups,
       applyMemoryMaintenance: applyMemoryMaintenance
