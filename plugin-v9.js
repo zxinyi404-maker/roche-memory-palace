@@ -2,7 +2,7 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.0.0";
+  const PLUGIN_VERSION = "9.0.1";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
@@ -1473,7 +1473,10 @@
   }
 
   const STYLES = [
-    ".mp-root{--ink:#403b3c;--muted:#817879;--line:#e5dedb;--paper:#fffdfb;--canvas:#f5f1ee;--rose:#b68591;--blue:#7c9aa5;--olive:#9b927c;box-sizing:border-box;min-height:100%;background:var(--canvas);color:var(--ink);font-family:Inter,'PingFang SC','Microsoft YaHei',sans-serif;letter-spacing:0;}",
+    ".mp-root{--ink:#403b3c;--muted:#817879;--line:#e5dedb;--paper:#fffdfb;--canvas:#f5f1ee;--rose:#b68591;--blue:#7c9aa5;--olive:#9b927c;box-sizing:border-box;min-height:100%;height:100%;max-height:100vh;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;touch-action:pan-y;-webkit-overflow-scrolling:touch;background:var(--canvas);color:var(--ink);font-family:Inter,'PingFang SC','Microsoft YaHei',sans-serif;letter-spacing:0;}",
+    ".mp-root::-webkit-scrollbar{width:8px;}",
+    ".mp-root::-webkit-scrollbar-track{background:transparent;}",
+    ".mp-root::-webkit-scrollbar-thumb{background:#d2c6c1;border-radius:4px;}",
     ".mp-root *{box-sizing:border-box;}",
     ".mp-shell{max-width:1160px;margin:0 auto;padding:28px 30px 54px;}",
     ".mp-topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:28px;}",
@@ -1626,6 +1629,8 @@
     ".mp-character-copy small{margin-top:4px;color:#aaa09e;font-size:10px;}",
     ".mp-character-arrow{margin-left:auto;color:#a79c99;}",
     ".mp-select-foot{margin-top:36px;color:#aaa09e;font-size:11px;line-height:1.7;}",
+    ".mp-select-config{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:22px;padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:#fbf8f6;color:var(--muted);font-size:11px;}",
+    ".mp-select-config strong{color:var(--ink);font-weight:500;}",
     "mark{padding:0 2px;border-radius:2px;background:#f0dfc2;color:inherit;}",
     "@media (max-width:760px){.mp-shell{padding:20px 15px 38px}.mp-topbar{margin-bottom:22px}.mp-hero{display:block}.mp-stats{margin-top:20px;gap:18px}.mp-room-grid,.mp-character-grid{grid-template-columns:1fr}.mp-insight{grid-template-columns:1fr}.mp-insight-copy{border-right:0;border-bottom:1px solid var(--line)}.mp-due-list{grid-template-columns:1fr}.mp-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mp-form-row{grid-template-columns:1fr}.mp-memory-bottom{align-items:flex-start;flex-direction:column;gap:8px}.mp-actions{gap:5px}.mp-button{padding:0 10px}}"
   ].join("");
@@ -1793,6 +1798,7 @@
     }
 
     async function loadConversations() {
+      embeddingConfig = await storageGet(api, EMBEDDING_KEY, {});
       let rawConversations = [];
       let characters = [];
       try {
@@ -1948,9 +1954,10 @@
           '<span class="mp-character-arrow">' + getSvgIcon("chevron", 18) + "</span></button>";
       }).join("");
       return '<div class="mp-shell mp-select-shell">' +
-        '<div class="mp-select-top">' + iconButton("back-host", "arrow", "退出记忆宫殿") + "</div>" +
+        '<div class="mp-select-top"><div>' + iconButton("back-host", "arrow", "退出记忆宫殿") + '</div><div class="mp-actions">' + iconButton("open-settings", "settings", "通用检索设置") + "</div></div>" +
         '<section class="mp-select-hero"><div class="mp-kicker">MEMORY PALACE</div><h1 class="mp-h1">选择一个角色</h1><p class="mp-lede">进入 Ta 的七个房间，查看关系留下的痕迹、正在衰减的片段，以及会在聊天中被重新唤起的记忆。</p></section>' +
         '<div class="mp-character-grid">' + (cards || '<div class="mp-panel mp-empty"><strong>还没有可用角色</strong>请先在 Roche 中创建角色或打开一段对话。</div>') + "</div>" +
+        '<div class="mp-select-config"><div><strong>通用语义检索</strong><div>' + (embeddingConfig && embeddingConfig.enabled ? "已启用真实嵌入，所有角色共用此配置" : "当前使用本地语义近似，所有角色共用此配置") + '</div></div><button class="mp-button" data-action="open-settings">配置 embedding</button></div>' +
         '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行。</div></div>';
     }
 
@@ -2143,8 +2150,8 @@
     function renderSettingsPage() {
       const config = embeddingConfig || {};
       return '<div class="mp-shell">' +
-        renderHeader({ backAction: "back-palace", backLabel: "回到宫殿", actions: "" }) +
-        '<section class="mp-hero"><div><div class="mp-kicker">RETRIEVAL SETTINGS</div><h1 class="mp-h1">检索设置</h1><p class="mp-lede">Roche 公开接口提供记忆数据与文本候选召回；配置嵌入接口后，聊天桥接可以把 85% 的语义权重交给真实向量。</p></div></section>' +
+        renderHeader({ backAction: selectedConversationId ? "back-palace" : "back-select", backLabel: selectedConversationId ? "回到宫殿" : "选择角色", actions: "" }) +
+        '<section class="mp-hero"><div><div class="mp-kicker">GLOBAL RETRIEVAL SETTINGS</div><h1 class="mp-h1">通用检索设置</h1><p class="mp-lede">这里的 embedding 配置对所有角色和所有记忆宫殿生效，不需要逐个角色重复设置。</p></div></section>' +
         '<div class="mp-detail"><div class="mp-detail-panel"><div class="mp-form"><label class="mp-toggle"><input id="mp-embedding-enabled" type="checkbox"' + (config.enabled ? " checked" : "") + ">启用外部嵌入</label><div class=\"mp-field\"><label for=\"mp-embedding-endpoint\">嵌入接口地址</label><input id=\"mp-embedding-endpoint\" value=\"" + escapeAttr(config.endpoint || "") + '" placeholder="https://.../embeddings"></div><div class="mp-form-row"><div class="mp-field"><label for="mp-embedding-model">模型</label><input id="mp-embedding-model" value="' + escapeAttr(config.model || "text-embedding-3-small") + '"></div><div class="mp-field"><label for="mp-embedding-key">API Key</label><input id="mp-embedding-key" type="password" value="' + escapeAttr(config.apiKey || "") + '"></div></div><div class="mp-help">未配置时使用浏览器本地语义近似，并继续使用 Roche 宿主搜索补充具体词命中。配置只保存在本插件的隔离存储中。</div><div>' + actionButton("save-settings", "保存检索设置", "check", "primary") + "</div></div></div></div></div>";
     }
 
@@ -2297,7 +2304,7 @@
       embeddingCache.clear();
       await storageSet(api, EMBEDDING_KEY, embeddingConfig);
       notify(embeddingConfig.enabled ? "真实嵌入已启用" : "已保存，本地语义近似仍会工作");
-      view = "palace";
+      view = selectedConversationId ? "palace" : "select";
       render();
     }
 

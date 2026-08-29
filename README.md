@@ -1,4 +1,4 @@
-# Roche 记忆宫殿 v9.0
+# Roche 记忆宫殿 v9.0.1
 
 七房间记忆管理系统。它把 Roche 的长期记忆整理成房间、事件和关联边，再用保持率、混合检索、角色性格和当前情绪决定每轮聊天更容易想起什么。
 
@@ -64,7 +64,7 @@ Roche 当前公开插件 API 提供 memory.getLongTerm() 和文本 memory.search
 
 https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/manifest.json
 
-当前版本：9.0.0
+当前版本：9.0.1
 
 ## 权限与数据
 
