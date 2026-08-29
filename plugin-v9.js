@@ -2,11 +2,12 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.0.1";
+  const PLUGIN_VERSION = "9.0.2";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
   const EMBEDDING_KEY = "memoryPalaceEmbeddingConfig";
+  const CHAT_MEMORY_KEY = "memoryPalaceChatEnabled";
   const DELETE_RETENTION_THRESHOLD = 0.1;
   const DELETE_IMPORTANCE_THRESHOLD = 3;
   const ROOM_ORDER = [
@@ -1631,6 +1632,21 @@
     ".mp-select-foot{margin-top:36px;color:#aaa09e;font-size:11px;line-height:1.7;}",
     ".mp-select-config{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:22px;padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:#fbf8f6;color:var(--muted);font-size:11px;}",
     ".mp-select-config strong{color:var(--ink);font-weight:500;}",
+    ".mp-select-config-row{display:flex;align-items:center;justify-content:space-between;gap:14px;}",
+    ".mp-select-config-row+.mp-select-config-row{margin-top:13px;padding-top:13px;border-top:1px solid #eee7e4;}",
+    ".mp-select-config-copy{display:grid;gap:4px;min-width:0;}",
+    ".mp-select-config-copy div{color:var(--muted);font-size:10px;line-height:1.5;}",
+    ".mp-setting-line{display:flex;align-items:center;justify-content:space-between;gap:18px;padding-bottom:15px;border-bottom:1px solid #eee7e4;}",
+    ".mp-setting-copy{display:grid;gap:4px;}",
+    ".mp-setting-copy strong{font-size:12px;font-weight:500;}",
+    ".mp-setting-copy span{color:var(--muted);font-size:11px;line-height:1.6;}",
+    ".mp-switch{position:relative;display:inline-flex;align-items:center;flex:0 0 auto;cursor:pointer;}",
+    ".mp-switch input{position:absolute;width:1px;height:1px;opacity:0;}",
+    ".mp-switch span{position:relative;display:block;width:42px;height:24px;border-radius:12px;background:#d6ceca;transition:background .16s;}",
+    ".mp-switch span::after{content:\"\";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(71,57,53,.18);transition:transform .16s;}",
+    ".mp-switch input:checked+span{background:#9b8eaa;}",
+    ".mp-switch input:checked+span::after{transform:translateX(18px);}",
+    ".mp-switch input:focus-visible+span{box-shadow:0 0 0 3px #eee8f0;}",
     "mark{padding:0 2px;border-radius:2px;background:#f0dfc2;color:inherit;}",
     "@media (max-width:760px){.mp-shell{padding:20px 15px 38px}.mp-topbar{margin-bottom:22px}.mp-hero{display:block}.mp-stats{margin-top:20px;gap:18px}.mp-room-grid,.mp-character-grid{grid-template-columns:1fr}.mp-insight{grid-template-columns:1fr}.mp-insight-copy{border-right:0;border-bottom:1px solid var(--line)}.mp-due-list{grid-template-columns:1fr}.mp-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mp-form-row{grid-template-columns:1fr}.mp-memory-bottom{align-items:flex-start;flex-direction:column;gap:8px}.mp-actions{gap:5px}.mp-button{padding:0 10px}}"
   ].join("");
@@ -1747,6 +1763,7 @@
     let descending = true;
     let selectedMemoryId = null;
     let embeddingConfig = {};
+    let chatMemoryEnabled = true;
     let refreshTimer = null;
     let saveTimer = null;
     let toastTimer = null;
@@ -1799,6 +1816,7 @@
 
     async function loadConversations() {
       embeddingConfig = await storageGet(api, EMBEDDING_KEY, {});
+      chatMemoryEnabled = (await storageGet(api, CHAT_MEMORY_KEY, true)) !== false;
       let rawConversations = [];
       let characters = [];
       try {
@@ -1858,6 +1876,7 @@
       memories = bundle.memories;
       events = bundle.events;
       embeddingConfig = await storageGet(api, EMBEDDING_KEY, {});
+      chatMemoryEnabled = (await storageGet(api, CHAT_MEMORY_KEY, true)) !== false;
       if (bundle.changed) {
         schedulePersist();
       }
@@ -1957,7 +1976,7 @@
         '<div class="mp-select-top"><div>' + iconButton("back-host", "arrow", "退出记忆宫殿") + '</div><div class="mp-actions">' + iconButton("open-settings", "settings", "通用检索设置") + "</div></div>" +
         '<section class="mp-select-hero"><div class="mp-kicker">MEMORY PALACE</div><h1 class="mp-h1">选择一个角色</h1><p class="mp-lede">进入 Ta 的七个房间，查看关系留下的痕迹、正在衰减的片段，以及会在聊天中被重新唤起的记忆。</p></section>' +
         '<div class="mp-character-grid">' + (cards || '<div class="mp-panel mp-empty"><strong>还没有可用角色</strong>请先在 Roche 中创建角色或打开一段对话。</div>') + "</div>" +
-        '<div class="mp-select-config"><div><strong>通用语义检索</strong><div>' + (embeddingConfig && embeddingConfig.enabled ? "已启用真实嵌入，所有角色共用此配置" : "当前使用本地语义近似，所有角色共用此配置") + '</div></div><button class="mp-button" data-action="open-settings">配置 embedding</button></div>' +
+        '<div class="mp-select-config"><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>通用语义检索</strong><div>' + (embeddingConfig && embeddingConfig.enabled ? "已启用真实嵌入，所有角色共用此配置" : "当前使用本地语义近似，所有角色共用此配置") + '</div></div><button class="mp-button" data-action="open-settings">配置 embedding</button></div><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>参与聊天记忆</strong><div>' + (chatMemoryEnabled ? "已开启，相关记忆会参与 AI 回复" : "已关闭，仅保留记忆宫殿管理功能") + '</div></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div></div>' +
         '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行。</div></div>';
     }
 
@@ -2151,8 +2170,14 @@
       const config = embeddingConfig || {};
       return '<div class="mp-shell">' +
         renderHeader({ backAction: selectedConversationId ? "back-palace" : "back-select", backLabel: selectedConversationId ? "回到宫殿" : "选择角色", actions: "" }) +
-        '<section class="mp-hero"><div><div class="mp-kicker">GLOBAL RETRIEVAL SETTINGS</div><h1 class="mp-h1">通用检索设置</h1><p class="mp-lede">这里的 embedding 配置对所有角色和所有记忆宫殿生效，不需要逐个角色重复设置。</p></div></section>' +
-        '<div class="mp-detail"><div class="mp-detail-panel"><div class="mp-form"><label class="mp-toggle"><input id="mp-embedding-enabled" type="checkbox"' + (config.enabled ? " checked" : "") + ">启用外部嵌入</label><div class=\"mp-field\"><label for=\"mp-embedding-endpoint\">嵌入接口地址</label><input id=\"mp-embedding-endpoint\" value=\"" + escapeAttr(config.endpoint || "") + '" placeholder="https://.../embeddings"></div><div class="mp-form-row"><div class="mp-field"><label for="mp-embedding-model">模型</label><input id="mp-embedding-model" value="' + escapeAttr(config.model || "text-embedding-3-small") + '"></div><div class="mp-field"><label for="mp-embedding-key">API Key</label><input id="mp-embedding-key" type="password" value="' + escapeAttr(config.apiKey || "") + '"></div></div><div class="mp-help">未配置时使用浏览器本地语义近似，并继续使用 Roche 宿主搜索补充具体词命中。配置只保存在本插件的隔离存储中。</div><div>' + actionButton("save-settings", "保存检索设置", "check", "primary") + "</div></div></div></div></div>";
+        '<section class="mp-hero"><div><div class="mp-kicker">GLOBAL RETRIEVAL SETTINGS</div><h1 class="mp-h1">通用检索设置</h1><p class="mp-lede">这里的 embedding 配置和聊天参与开关对所有角色和所有记忆宫殿生效，不需要逐个角色重复设置。</p></div></section>' +
+        '<div class="mp-detail"><div class="mp-detail-panel"><div class="mp-form">' +
+        '<div class="mp-setting-line"><div class="mp-setting-copy"><strong>参与聊天记忆</strong><span>关闭后仍可管理、搜索和维护记忆，但不会把记忆注入聊天，也不会执行记忆工具。</span></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div>' +
+        '<label class="mp-toggle"><input id="mp-embedding-enabled" type="checkbox"' + (config.enabled ? " checked" : "") + ">启用外部嵌入</label>" +
+        '<div class="mp-field"><label for="mp-embedding-endpoint">嵌入接口地址</label><input id="mp-embedding-endpoint" value="' + escapeAttr(config.endpoint || "") + '" placeholder="https://.../embeddings"></div>' +
+        '<div class="mp-form-row"><div class="mp-field"><label for="mp-embedding-model">模型</label><input id="mp-embedding-model" value="' + escapeAttr(config.model || "text-embedding-3-small") + '"></div><div class="mp-field"><label for="mp-embedding-key">API Key</label><input id="mp-embedding-key" type="password" value="' + escapeAttr(config.apiKey || "") + '"></div></div>' +
+        '<div class="mp-help">外部嵌入会把每次检索问题发送到你填写的 embedding 服务，由它转换成向量；只有与已有记忆向量维度匹配时才参与语义排序。关闭或没有接口地址时，不发送外部请求，改用本地语义近似和 Roche 宿主搜索。API Key 只保存在插件隔离存储中，但检索文字仍会发送给该服务。</div>' +
+        '<div>' + actionButton("save-settings", "保存检索设置", "check", "primary") + "</div></div></div></div></div>";
     }
 
     function renderLoading() {
@@ -2287,6 +2312,15 @@
       await persistNow(false);
       await syncMemoryPatch(api, memory);
       notify("记忆属性已保存");
+      render();
+    }
+
+    async function saveChatMemorySetting(enabled) {
+      chatMemoryEnabled = Boolean(enabled);
+      const saved = await storageSet(api, CHAT_MEMORY_KEY, chatMemoryEnabled);
+      notify(saved
+        ? (chatMemoryEnabled ? "记忆宫殿已参与聊天回复" : "已关闭，记忆宫殿不再参与聊天回复")
+        : "当前会话已切换，但全局开关保存失败");
       render();
     }
 
@@ -2474,6 +2508,10 @@
     }
 
     function handleChange(event) {
+      if (event.target && event.target.id === "mp-chat-memory-enabled") {
+        saveChatMemorySetting(event.target.checked).catch(function () { notify("聊天记忆开关保存失败"); });
+        return;
+      }
       if (event.target && event.target.id === "mp-search-input") {
         searchQuery = String(event.target.value || "").trim();
         if (searchQuery) {
@@ -2574,6 +2612,17 @@
     }
   }
 
+  async function isChatMemoryEnabled(api, conversationId) {
+    if (!api || !conversationId) {
+      return false;
+    }
+    const globallyEnabled = await storageGet(api, CHAT_MEMORY_KEY, true);
+    if (globallyEnabled === false) {
+      return false;
+    }
+    return (await storageGet(api, "memoryPalaceEnabled:" + conversationId, true)) !== false;
+  }
+
   function fallbackRecentEntries(memories, query, personality) {
     return memories.slice().sort(function (a, b) {
       return memoryScoreForContext(b, query, personality) - memoryScoreForContext(a, query, personality);
@@ -2594,8 +2643,7 @@
     if (!api || !conversationId || !api.memory || typeof api.memory.getLongTerm !== "function") {
       return null;
     }
-    const enabled = await storageGet(api, "memoryPalaceEnabled:" + conversationId, true);
-    if (enabled === false) {
+    if (!(await isChatMemoryEnabled(api, conversationId))) {
       return null;
     }
     const query = await getContextQuery(api, ctx);
@@ -2654,6 +2702,9 @@
     if (!api || !conversationId || !query) {
       return { ok: false, results: [], message: "缺少会话或查询词" };
     }
+    if (!(await isChatMemoryEnabled(api, conversationId))) {
+      return { ok: false, results: [], disabled: true, message: "记忆宫殿未参与聊天回复" };
+    }
     const bundle = await loadMemoryBundle(api, conversationId);
     const ranked = await rankMemoriesWithHost(api, conversationId, query, bundle.memories);
     const personality = inferPersonality(contextPersonaText(ctx));
@@ -2674,6 +2725,9 @@
     const text = String(args && (args.summaryText || args.text || args.content) || "").trim();
     if (!api || !conversationId || !text || !api.memory || typeof api.memory.write !== "function") {
       return { ok: false, message: "缺少会话、记忆内容或 Roche 写入接口" };
+    }
+    if (!(await isChatMemoryEnabled(api, conversationId))) {
+      return { ok: false, disabled: true, message: "记忆宫殿未参与聊天回复" };
     }
     const room = normalizeRoomId(args && args.room) || classifyRoom(text, "fact");
     const emotion = normalizeEmotion(args && args.emotion || detectEmotion(text).label);
@@ -2721,6 +2775,9 @@
     const id = String(args && args.id || "");
     if (!api || !conversationId || !id) {
       return { ok: false, message: "缺少会话或记忆 id" };
+    }
+    if (!(await isChatMemoryEnabled(api, conversationId))) {
+      return { ok: false, disabled: true, message: "记忆宫殿未参与聊天回复" };
     }
     const bundle = await loadMemoryBundle(api, conversationId);
     const memory = bundle.memories.find(function (item) { return String(item.id) === id; });
@@ -2830,7 +2887,6 @@
       ],
       chat: {
         scope: "all",
-        promptOnly: "你拥有一个记忆宫殿。只有在上下文确实相关时自然使用记忆，不要提及系统实现、检索分数或房间名称；不确定的内容必须保留不确定性。",
         contextProvider: buildChatContext,
         tools: createChatTools()
       }

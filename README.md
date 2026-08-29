@@ -1,4 +1,4 @@
-# Roche 记忆宫殿 v9.0.1
+# Roche 记忆宫殿 v9.0.2
 
 七房间记忆管理系统。它把 Roche 的长期记忆整理成房间、事件和关联边，再用保持率、混合检索、角色性格和当前情绪决定每轮聊天更容易想起什么。
 
@@ -25,6 +25,10 @@
 - 反刍检查：按角色反刍倾向，以 20% 乘数计算随机侵入性念头。
 
 Roche 当前公开插件 API 提供 memory.getLongTerm() 和文本 memory.search()，没有公开的向量查询或 embedding 接口。插件会把 Roche 的向量记录作为数据源，并提供 OpenAI-compatible 嵌入接口配置；未配置时使用浏览器本地语义近似，不把文本交集冒充成原生向量搜索。
+
+首页的“参与聊天记忆”是全局开关。关闭后，插件仍可用于查看、搜索、编辑、关联和自动遗忘，但不会自动向 AI 注入记忆上下文，聊天侧的记忆搜索、保存和复习工具也会被拦截。
+
+“外部嵌入”是可选的语义向量服务。开启并填写 OpenAI-compatible `/embeddings` 接口后，插件会把当前检索问题发送给该服务生成向量，再与 Roche 记忆记录中已有的同维度向量比较；它不是聊天模型，也不会生成回复。没有配置、接口失败或记忆没有匹配向量时，插件会退回本地语义近似加 Roche 宿主搜索。检索文字会发送到你填写的服务，API Key 只保存在插件隔离存储中。
 
 ### 自动遗忘
 
@@ -64,7 +68,7 @@ Roche 当前公开插件 API 提供 memory.getLongTerm() 和文本 memory.search
 
 https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/manifest.json
 
-当前版本：9.0.1
+当前版本：9.0.2
 
 ## 权限与数据
 
