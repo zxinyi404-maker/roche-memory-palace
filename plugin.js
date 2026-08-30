@@ -2,7 +2,7 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.0.5";
+  const PLUGIN_VERSION = "9.1.0";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
@@ -10,6 +10,15 @@
   const CHAT_MEMORY_KEY = "memoryPalaceChatEnabled";
   const HOST_OVERLAP_LIMIT = 8;
   const CHAT_CONTEXT_LIMIT = 8;
+  const CHAT_SEARCH_LIMIT = 40;
+  const CHAT_MEMORY_READ_LIMIT = 400;
+  const CHAT_CONTEXT_TIMEOUT_MS = 900;
+  const CHAT_CONTEXT_CHAR_BUDGET = 1800;
+  const CHAT_INDEX_TIMEOUT_MS = 3000;
+  const CHAT_BUNDLE_TTL_MS = 45 * 1000;
+  const CHAT_EMPTY_BUNDLE_TTL_MS = 5 * 1000;
+  const CHAT_SETTING_TTL_MS = 15 * 1000;
+  const EMBEDDING_TIMEOUT_MS = 2500;
   const DELETE_RETENTION_THRESHOLD = 0.1;
   const DELETE_IMPORTANCE_THRESHOLD = 3;
   const ROOM_ORDER = [
@@ -25,6 +34,12 @@
   let activeRocheApi = null;
   let activeMountCleanup = null;
   const embeddingCache = new Map();
+  const embeddingRequests = new Map();
+  const chatBundleCache = new Map();
+  const chatBundleRequests = new Map();
+  const chatWarmupRequests = new Map();
+  const chatSettingCache = new Map();
+  const automaticRecallQueue = new Map();
 
   const ROOM_RULES = Object.freeze({
     livingRoom: {
@@ -261,6 +276,35 @@
       return window.Roche;
     }
     return null;
+  }
+
+  function settleWithTimeout(promise, timeoutMs, fallback) {
+    const duration = Math.max(0, Number(timeoutMs) || 0);
+    if (!duration) {
+      return Promise.resolve(promise).catch(function () {
+        return fallback;
+      });
+    }
+    return new Promise(function (resolve) {
+      let settled = false;
+      let timer = setTimeout(function () {
+        if (!settled) {
+          settled = true;
+          resolve(fallback);
+        }
+      }, duration);
+      function finish(value) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      }
+      Promise.resolve(promise).then(finish, function () {
+        finish(fallback);
+      });
+    });
   }
 
   async function storageGet(api, key, fallback) {
@@ -946,6 +990,79 @@
     return extractText(result.item || result.memory || result);
   }
 
+  function hostResultRecord(result) {
+    return result && (result.item || result.memory || result);
+  }
+
+  function normalizeHostResults(results, conversationId, metadata) {
+    const longTerm = {
+      core: [],
+      facts: [],
+      vectors: []
+    };
+    toArray(results).forEach(function (result) {
+      const raw = hostResultRecord(result);
+      if (!raw || !extractText(raw)) {
+        return;
+      }
+      const kind = hostResultKind(result);
+      if (kind !== "core" && kind !== "fact" && kind !== "facts" && kind !== "vector") {
+        return;
+      }
+      let record = raw;
+      const id = hostResultId(result);
+      const vector = extractEmbedding(raw) || extractEmbedding(result);
+      if (record && typeof record === "object" && id && !record.id) {
+        record = Object.assign({}, record, { id: id });
+      }
+      if (record && typeof record === "object" && vector && !extractEmbedding(record)) {
+        record = Object.assign({}, record, { embedding: vector });
+      }
+      if (kind === "core") {
+        longTerm.core.push(record);
+      } else if (kind === "fact" || kind === "facts") {
+        longTerm.facts.push(record);
+      } else {
+        longTerm.vectors.push(record);
+      }
+    });
+    return normalizeMemories(longTerm, metadata || {}, conversationId);
+  }
+
+  function mergeMemoryLists(primary, additions) {
+    const merged = toArray(primary).slice();
+    const byId = new Map();
+    const bySignature = new Map();
+    merged.forEach(function (memory) {
+      byId.set(String(memory.id), memory);
+      const signature = memoryTextSignature(memory.text);
+      if (signature) {
+        bySignature.set(signature, memory);
+      }
+    });
+    toArray(additions).forEach(function (memory) {
+      if (!memory) {
+        return;
+      }
+      const existing = byId.get(String(memory.id)) || bySignature.get(memoryTextSignature(memory.text));
+      if (existing) {
+        if (!existing.embedding && memory.embedding) {
+          existing.embedding = memory.embedding;
+        }
+        return;
+      }
+      merged.push(memory);
+      byId.set(String(memory.id), memory);
+      const signature = memoryTextSignature(memory.text);
+      if (signature) {
+        bySignature.set(signature, memory);
+      }
+    });
+    return merged.sort(function (a, b) {
+      return b.timestamp - a.timestamp;
+    });
+  }
+
   function memoryTextSignature(text) {
     return String(text || "").toLowerCase().replace(/\s+/g, "").replace(/[^\w\u4e00-\u9fff]/g, "");
   }
@@ -982,7 +1099,7 @@
 
   function hostResultId(result) {
     const item = result && (result.item || result.memory || result);
-    return item && item.id ? String(item.id) : "";
+    return item && item.id ? String(item.id) : result && result.id ? String(result.id) : "";
   }
 
   function hostResultKind(result) {
@@ -990,16 +1107,17 @@
     return String(result && (result.kind || result.type) || item && (item.kind || item.type) || "").toLowerCase();
   }
 
-  async function callHostSearch(api, conversationId, query, limit) {
+  async function callHostSearch(api, conversationId, query, limit, timeoutMs) {
     if (!api || !api.memory || typeof api.memory.search !== "function" || !query) {
       return [];
     }
     try {
-      const response = await api.memory.search({
+      const request = api.memory.search({
         conversationId: conversationId,
         query: query,
         limit: limit || 80
       });
+      const response = await settleWithTimeout(request, timeoutMs || 2500, []);
       return Array.isArray(response) ? response : [];
     } catch (error) {
       return [];
@@ -1014,40 +1132,69 @@
     if (embeddingCache.has(cacheKey)) {
       return embeddingCache.get(cacheKey);
     }
+    if (embeddingRequests.has(cacheKey)) {
+      return embeddingRequests.get(cacheKey);
+    }
+    const request = (async function () {
+      let controller = null;
+      let timer = null;
+      try {
+        const headers = { "Content-Type": "application/json" };
+        if (config.apiKey) {
+          headers.Authorization = "Bearer " + config.apiKey;
+        }
+        if (typeof AbortController === "function") {
+          controller = new AbortController();
+          timer = setTimeout(function () {
+            controller.abort();
+          }, EMBEDDING_TIMEOUT_MS);
+        }
+        const requestOptions = {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify({
+            model: config.model || "text-embedding-3-small",
+            input: text
+          })
+        };
+        if (controller) {
+          requestOptions.signal = controller.signal;
+        }
+        const response = await fetch(config.endpoint, requestOptions);
+        if (!response.ok) {
+          return null;
+        }
+        const payload = await response.json();
+        const vector = payload && payload.data && payload.data[0] && payload.data[0].embedding
+          || payload && payload.embedding
+          || payload && payload.vector;
+        if (!Array.isArray(vector) || vector.length < 8) {
+          return null;
+        }
+        const normalized = vector.map(Number);
+        if (normalized.some(function (value) { return !Number.isFinite(value); })) {
+          return null;
+        }
+        if (embeddingCache.size > 64) {
+          embeddingCache.delete(embeddingCache.keys().next().value);
+        }
+        embeddingCache.set(cacheKey, normalized);
+        return normalized;
+      } catch (error) {
+        return null;
+      } finally {
+        if (timer) {
+          clearTimeout(timer);
+        }
+      }
+    })();
+    embeddingRequests.set(cacheKey, request);
     try {
-      const headers = { "Content-Type": "application/json" };
-      if (config.apiKey) {
-        headers.Authorization = "Bearer " + config.apiKey;
+      return await request;
+    } finally {
+      if (embeddingRequests.get(cacheKey) === request) {
+        embeddingRequests.delete(cacheKey);
       }
-      const response = await fetch(config.endpoint, {
-        method: "POST",
-        headers: headers,
-        body: JSON.stringify({
-          model: config.model || "text-embedding-3-small",
-          input: text
-        })
-      });
-      if (!response.ok) {
-        return null;
-      }
-      const payload = await response.json();
-      const vector = payload && payload.data && payload.data[0] && payload.data[0].embedding
-        || payload && payload.embedding
-        || payload && payload.vector;
-      if (!Array.isArray(vector) || vector.length < 8) {
-        return null;
-      }
-      const normalized = vector.map(Number);
-      if (normalized.some(function (value) { return !Number.isFinite(value); })) {
-        return null;
-      }
-      if (embeddingCache.size > 64) {
-        embeddingCache.delete(embeddingCache.keys().next().value);
-      }
-      embeddingCache.set(cacheKey, normalized);
-      return normalized;
-    } catch (error) {
-      return null;
     }
   }
 
@@ -1141,8 +1288,23 @@
     }
   }
 
-  async function rankMemoriesWithHost(api, conversationId, query, memories) {
-    const hostResults = await callHostSearch(api, conversationId, query, 80);
+  async function rankMemoriesWithHost(api, conversationId, query, memories, options) {
+    const settings = options || {};
+    const hostRequest = Array.isArray(settings.hostResults)
+      ? Promise.resolve(settings.hostResults)
+      : callHostSearch(api, conversationId, query, settings.limit || 80, settings.timeoutMs || 2500);
+    let queryVectorRequest = Promise.resolve(null);
+    if (settings.useExternalEmbedding !== false) {
+      const configRequest = settings.embeddingConfig !== undefined
+        ? Promise.resolve(settings.embeddingConfig)
+        : storageGet(api, EMBEDDING_KEY, {});
+      queryVectorRequest = configRequest.then(function (config) {
+        return requestEmbedding(query, config);
+      });
+    }
+    const parallel = await Promise.all([hostRequest, queryVectorRequest]);
+    const hostResults = Array.isArray(parallel[0]) ? parallel[0] : [];
+    const queryVector = parallel[1];
     const byId = new Map(memories.map(function (memory) { return [String(memory.id), memory]; }));
     const bySignature = new Map(memories.map(function (memory) {
       return [memoryTextSignature(memory.text), memory];
@@ -1158,33 +1320,33 @@
         hostScores.set(memory.id, Math.max(hostScores.get(memory.id) || 0, 1 - index / Math.max(1, hostResults.length)));
       }
     });
-    const vectorResults = hostResults.filter(function (result) {
-      return hostResultKind(result) === "vector";
-    });
-    // Roche does not expose its native vector top 8, so this is a best-effort overlap set.
-    const overlapResults = (vectorResults.length ? vectorResults : hostResults).slice(0, HOST_OVERLAP_LIMIT);
-    overlapResults.forEach(function (result) {
-      const id = hostResultId(result);
-      const text = hostResultText(result);
-      const memory = byId.get(id) || bySignature.get(memoryTextSignature(text));
-      if (!memory) {
-        return;
-      }
-      hostOverlapIds.add(String(memory.id));
-      const signature = memoryTextSignature(memory.text);
-      if (signature) {
-        hostOverlapSignatures.add(signature);
-      }
-    });
-    const config = await storageGet(api, EMBEDDING_KEY, {});
-    const queryVector = await requestEmbedding(query, config);
+    if (settings.excludeHostOverlap !== false) {
+      const vectorResults = hostResults.filter(function (result) {
+        return hostResultKind(result) === "vector";
+      });
+      // Roche does not expose its native vector top 8, so this is a best-effort overlap set.
+      const overlapResults = (vectorResults.length ? vectorResults : hostResults).slice(0, HOST_OVERLAP_LIMIT);
+      overlapResults.forEach(function (result) {
+        const id = hostResultId(result);
+        const text = hostResultText(result);
+        const memory = byId.get(id) || bySignature.get(memoryTextSignature(text));
+        if (!memory) {
+          return;
+        }
+        hostOverlapIds.add(String(memory.id));
+        const signature = memoryTextSignature(memory.text);
+        if (signature) {
+          hostOverlapSignatures.add(signature);
+        }
+      });
+    }
     const ranked = rankMemories(query, memories, {
       hostScores: hostScores,
       queryVector: queryVector || undefined
     });
     return {
       entries: ranked,
-      semanticMode: queryVector ? "向量嵌入" : "本地语义近似",
+      semanticMode: queryVector ? "向量嵌入" : settings.semanticMode || "本地语义近似",
       hostCount: hostResults.length,
       hostOverlapIds: Array.from(hostOverlapIds),
       hostOverlapSignatures: Array.from(hostOverlapSignatures)
@@ -1514,6 +1676,134 @@
     };
   }
 
+  function cacheChatBundle(conversationId, bundle) {
+    if (!conversationId || !bundle) {
+      return;
+    }
+    chatBundleCache.set(String(conversationId), {
+      expiresAt: Date.now() + (bundle.memories && bundle.memories.length ? CHAT_BUNDLE_TTL_MS : CHAT_EMPTY_BUNDLE_TTL_MS),
+      bundle: bundle
+    });
+  }
+
+  function invalidateChatBundleCache(conversationId) {
+    if (conversationId) {
+      chatBundleCache.delete(String(conversationId));
+      return;
+    }
+    chatBundleCache.clear();
+  }
+
+  function cachedChatBundle(conversationId) {
+    const cached = chatBundleCache.get(String(conversationId || ""));
+    if (!cached || cached.expiresAt <= Date.now()) {
+      if (cached) {
+        chatBundleCache.delete(String(conversationId || ""));
+      }
+      return null;
+    }
+    if (cached.bundle && cached.bundle.chatReady === false) {
+      return null;
+    }
+    return cached.bundle;
+  }
+
+  async function loadChatMemoryBundle(api, conversationId) {
+    if (!api || !api.memory || typeof api.memory.getLongTerm !== "function" || !conversationId) {
+      return null;
+    }
+    const key = String(conversationId);
+    const cached = cachedChatBundle(key);
+    if (cached) {
+      return cached;
+    }
+    if (chatBundleRequests.has(key)) {
+      return chatBundleRequests.get(key);
+    }
+    const request = (async function () {
+      let longTermRequest;
+      try {
+        longTermRequest = api.memory.getLongTerm({
+          conversationId: conversationId,
+          limit: CHAT_MEMORY_READ_LIMIT
+        });
+      } catch (error) {
+        longTermRequest = Promise.resolve({});
+      }
+      const parallel = await Promise.all([
+        settleWithTimeout(longTermRequest, CHAT_INDEX_TIMEOUT_MS, {}),
+        settleWithTimeout(storageGet(api, AUTO_SAVE_KEY + conversationId, {}), CHAT_INDEX_TIMEOUT_MS, {})
+      ]);
+      const memories = normalizeMemories(parallel[0] || {}, parallel[1] || {}, conversationId);
+      const bundle = {
+        memories: memories,
+        state: {},
+        events: [],
+        changed: false,
+        chatFastPath: true,
+        chatReady: false
+      };
+      cacheChatBundle(key, bundle);
+      return bundle;
+    })();
+    chatBundleRequests.set(key, request);
+    try {
+      return await request;
+    } finally {
+      if (chatBundleRequests.get(key) === request) {
+        chatBundleRequests.delete(key);
+      }
+    }
+  }
+
+  function scheduleChatWarmup(api, conversationId, query) {
+    const key = String(conversationId || "");
+    const source = String(query || "").trim();
+    if (!key || !source || chatWarmupRequests.has(key)) {
+      return;
+    }
+    const task = (async function () {
+      if (!(await isChatMemoryEnabled(api, key))) {
+        return;
+      }
+      const parallel = await Promise.all([
+        settleWithTimeout(loadChatMemoryBundle(api, key), CHAT_INDEX_TIMEOUT_MS, null),
+        settleWithTimeout(callHostSearch(api, key, source, CHAT_SEARCH_LIMIT, CHAT_CONTEXT_TIMEOUT_MS), CHAT_CONTEXT_TIMEOUT_MS, [])
+      ]);
+      const bundle = parallel[0];
+      const hostResults = Array.isArray(parallel[1]) ? parallel[1] : [];
+      const hostMemories = normalizeHostResults(hostResults, key, {});
+      if (bundle) {
+        bundle.memories = mergeMemoryLists(bundle.memories, hostMemories);
+        bundle.hostResults = hostResults;
+        bundle.hostQuery = source;
+        bundle.chatReady = true;
+        cacheChatBundle(key, bundle);
+      } else if (hostMemories.length) {
+        cacheChatBundle(key, {
+          memories: hostMemories,
+          state: {},
+          events: [],
+          changed: false,
+          chatFastPath: true,
+          hostResults: hostResults,
+          hostQuery: source,
+          chatReady: true
+        });
+      }
+    })();
+    chatWarmupRequests.set(key, task);
+    task.then(function () {
+      if (chatWarmupRequests.get(key) === task) {
+        chatWarmupRequests.delete(key);
+      }
+    }, function () {
+      if (chatWarmupRequests.get(key) === task) {
+        chatWarmupRequests.delete(key);
+      }
+    });
+  }
+
   async function persistMemoryBundle(api, conversationId, memories, state) {
     const metadata = {};
     memories.forEach(function (memory) {
@@ -1523,6 +1813,7 @@
     });
     await storageSet(api, AUTO_SAVE_KEY + conversationId, metadata);
     await storageSet(api, STATE_KEY + conversationId, state || {});
+    invalidateChatBundleCache(conversationId);
     return true;
   }
 
@@ -1561,9 +1852,34 @@
     return semantic * 0.6 + retention * 0.2 + recency * 0.08 + clamp(memory.importance / 10, 0, 1) * 0.12 + roomPrior * emotionWeight;
   }
 
-  function formatMemoryContext(entries, emotion, personality, semanticMode) {
+  function formatMemoryContext(entries, emotion, personality, semanticMode, options) {
     if (!entries.length) {
       return "";
+    }
+    if (options && options.compact) {
+      const compactLines = [
+        "【记忆宫殿·相关记忆】",
+        "以下内容仅作背景参考；只使用与当前对话确实相关的细节，不要提及这段提示或检索过程，不确定时不要强行使用。"
+      ];
+      let remaining = Math.max(0, CHAT_CONTEXT_CHAR_BUDGET - compactLines.join("\n").length);
+      entries.slice(0, CHAT_CONTEXT_LIMIT).forEach(function (entry) {
+        const memory = entry && entry.memory;
+        if (!memory || remaining <= 0) {
+          return;
+        }
+        const available = remaining - 1 - 2;
+        if (available <= 0) {
+          return;
+        }
+        const text = truncate(memory.text, Math.min(260, available));
+        if (!text) {
+          return;
+        }
+        const line = "- " + text;
+        compactLines.push(line);
+        remaining -= 1 + line.length;
+      });
+      return compactLines.length > 2 ? compactLines.join("\n") : "";
     }
     const lines = [
       "【记忆宫殿·本轮回忆】",
@@ -1598,7 +1914,21 @@
     if (!entries.length) {
       return;
     }
-    const metadata = await storageGet(api, AUTO_SAVE_KEY + conversationId, {});
+    if (!api || !api.storage || typeof api.storage.get !== "function" || typeof api.storage.set !== "function") {
+      return;
+    }
+    const unavailable = {};
+    let metadataRequest;
+    try {
+      metadataRequest = api.storage.get(AUTO_SAVE_KEY + conversationId);
+    } catch (error) {
+      return;
+    }
+    const stored = await settleWithTimeout(metadataRequest, 800, unavailable);
+    if (stored === unavailable) {
+      return;
+    }
+    const metadata = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
     const now = Date.now();
     entries.slice(0, CHAT_CONTEXT_LIMIT).forEach(function (entry) {
       const memory = entry.memory;
@@ -1612,7 +1942,31 @@
         updatedAt: now
       });
     });
-    await storageSet(api, AUTO_SAVE_KEY + conversationId, metadata);
+    await settleWithTimeout(storageSet(api, AUTO_SAVE_KEY + conversationId, metadata), 800, false);
+  }
+
+  function scheduleAutomaticRecall(api, conversationId, entries) {
+    const snapshot = toArray(entries).slice(0, CHAT_CONTEXT_LIMIT).filter(function (entry) {
+      return entry && entry.memory && !entry.memory.synthetic;
+    });
+    if (!snapshot.length || !conversationId) {
+      return;
+    }
+    const key = String(conversationId);
+    const previous = automaticRecallQueue.get(key) || Promise.resolve();
+    const task = previous.catch(function () {}).then(function () {
+      return recordAutomaticRecall(api, conversationId, snapshot);
+    });
+    automaticRecallQueue.set(key, task);
+    task.then(function () {
+      if (automaticRecallQueue.get(key) === task) {
+        automaticRecallQueue.delete(key);
+      }
+    }, function () {
+      if (automaticRecallQueue.get(key) === task) {
+        automaticRecallQueue.delete(key);
+      }
+    });
   }
 
   function conversationIdFromContext(ctx) {
@@ -1919,6 +2273,11 @@
     let memories = [];
     let events = [];
     let searchQuery = "";
+    let searchRanked = null;
+    let searchRankedKey = "";
+    let searchRankedReady = false;
+    let searchRankRequestId = 0;
+    let searchRankPending = false;
     let roomFilter = null;
     let sortBy = "time";
     let descending = true;
@@ -2038,8 +2397,13 @@
       const bundle = await loadMemoryBundle(api, selectedConversationId);
       memories = bundle.memories;
       events = bundle.events;
+      resetSearchRanking();
       embeddingConfig = await storageGet(api, EMBEDDING_KEY, {});
       chatMemoryEnabled = (await storageGet(api, CHAT_MEMORY_KEY, true)) !== false;
+      chatSettingCache.set(String(selectedConversationId), {
+        value: chatMemoryEnabled,
+        expiresAt: Date.now() + CHAT_SETTING_TTL_MS
+      });
       if (bundle.changed) {
         schedulePersist();
       }
@@ -2280,15 +2644,71 @@
         "</div>";
     }
 
+    function searchRankingKey(query) {
+      return String(selectedConversationId || "") + "|" + String(query || "").trim();
+    }
+
+    function resetSearchRanking() {
+      searchRankRequestId += 1;
+      searchRanked = null;
+      searchRankedKey = "";
+      searchRankedReady = false;
+      searchRankPending = false;
+    }
+
+    function scheduleSearchRanking(query) {
+      const source = String(query || "").trim();
+      const key = searchRankingKey(source);
+      if (!source || !memories.length || !(embeddingConfig && embeddingConfig.enabled) || searchRankedKey === key || searchRankPending) {
+        return;
+      }
+      const requestId = ++searchRankRequestId;
+      searchRankPending = true;
+      rankMemoriesWithHost(api, selectedConversationId, source, memories, {
+        hostResults: [],
+        useExternalEmbedding: true,
+        embeddingConfig: embeddingConfig,
+        excludeHostOverlap: false,
+        semanticMode: "本地语义近似"
+      }).then(function (result) {
+        if (destroyed || requestId !== searchRankRequestId || key !== searchRankingKey(searchQuery)) {
+          return;
+        }
+        searchRanked = result && Array.isArray(result.entries) ? result.entries : [];
+        searchRankedKey = key;
+        searchRankedReady = true;
+      }).catch(function () {
+        if (!destroyed && requestId === searchRankRequestId && key === searchRankingKey(searchQuery)) {
+          searchRanked = null;
+          searchRankedKey = key;
+          searchRankedReady = false;
+        }
+      }).finally(function () {
+        if (requestId !== searchRankRequestId) {
+          return;
+        }
+        searchRankPending = false;
+        if (!destroyed && view === "search" && key === searchRankingKey(searchQuery)) {
+          render();
+        }
+      });
+    }
+
     function renderSearchPage() {
-      const ranked = rankMemories(searchQuery, memories);
+      const localRanked = rankMemories(searchQuery, memories);
+      const key = searchRankingKey(searchQuery);
+      const hasExternalRanking = embeddingConfig && embeddingConfig.enabled && searchRankedKey === key && searchRankedReady && Array.isArray(searchRanked);
+      if (embeddingConfig && embeddingConfig.enabled && searchQuery.trim() && !hasExternalRanking && searchRankedKey !== key) {
+        scheduleSearchRanking(searchQuery);
+      }
+      const ranked = hasExternalRanking ? searchRanked : localRanked;
       const items = ranked.map(function (entry) { return entry.memory; });
       const scoreById = new Map(ranked.map(function (entry) { return [entry.memory.id, entry]; }));
       return '<div class="mp-shell">' +
         renderHeader({ backAction: "back-palace", backLabel: "回到宫殿", actions: iconButton("refresh", "refresh", "刷新记忆") }) +
         '<section class="mp-hero"><div><div class="mp-kicker">HYBRID RECALL</div><h1 class="mp-h1">搜索记忆</h1><p class="mp-lede">“' + escapeHtml(searchQuery) + '” 的混合检索结果。</p></div><div class="mp-stats"><div class="mp-stat"><div class="mp-stat-value">' + items.length + '</div><div class="mp-stat-label">召回片段</div></div><div class="mp-stat"><div class="mp-stat-value">85/15</div><div class="mp-stat-label">语义 / BM25</div></div></div></section>' +
         '<div class="mp-toolbar">' + renderSearchInput(searchQuery, "继续搜索...") + actionButton("view-all", "查看全部记忆", "grid") + "</div>" +
-        '<div class="mp-help">当前模式：' + (embeddingConfig && embeddingConfig.enabled ? "已配置真实嵌入" : "本地语义近似") + "。聊天桥接会额外调用 Roche 的宿主记忆搜索作为候选召回。</div>" +
+        '<div class="mp-help">当前模式：' + (hasExternalRanking ? "真实嵌入 + BM25" : embeddingConfig && embeddingConfig.enabled ? (searchRankPending ? "先显示本地结果，正在补充真实嵌入" : "本地语义近似") : "本地语义近似") + "。聊天默认使用受限的 Roche 记忆候选和本地排序，不调用额外聊天模型；外部 embedding 不进入聊天热路径。</div>" +
         '<div style="height:14px"></div>' +
         (items.length ? '<div class="mp-list">' + items.map(function (memory) {
           const entry = scoreById.get(memory.id);
@@ -2394,7 +2814,7 @@
         renderHeader({ backAction: selectedConversationId ? "back-palace" : "back-select", backLabel: selectedConversationId ? "回到宫殿" : "选择角色", actions: "" }) +
         '<section class="mp-hero"><div><div class="mp-kicker">GLOBAL RETRIEVAL SETTINGS</div><h1 class="mp-h1">通用检索设置</h1><p class="mp-lede">这里的 embedding 配置和聊天参与开关对所有角色和所有记忆宫殿生效，不需要逐个角色重复设置。</p></div></section>' +
         '<div class="mp-detail"><div class="mp-detail-panel"><div class="mp-form">' +
-        '<div class="mp-setting-line"><div class="mp-setting-copy"><strong>参与聊天记忆</strong><span>关闭后仍可管理、搜索和维护记忆，但不会把记忆注入聊天，也不会执行记忆工具。</span></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div>' +
+         '<div class="mp-setting-line"><div class="mp-setting-copy"><strong>参与聊天记忆</strong><span>关闭后仍可管理、搜索和维护记忆，但不会把记忆注入聊天。</span></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div>' +
         '<label class="mp-toggle"><input id="mp-embedding-enabled" type="checkbox"' + (config.enabled ? " checked" : "") + ">启用外部嵌入</label>" +
         '<div class="mp-field"><label for="mp-embedding-endpoint">嵌入接口地址</label><input id="mp-embedding-endpoint" value="' + escapeAttr(config.endpoint || "") + '" placeholder="https://.../embeddings"></div>' +
         '<div class="mp-field"><label for="mp-embedding-models-endpoint">模型列表接口地址（可选）</label><input id="mp-embedding-models-endpoint" value="' + escapeAttr(config.modelsEndpoint || "") + '" placeholder="留空自动推断 /models；Ollama 可填 /api/tags"></div>' +
@@ -2445,6 +2865,7 @@
       view = "palace";
       roomFilter = null;
       searchQuery = "";
+      resetSearchRanking();
       root.innerHTML = renderLoading();
       try {
         await loadSelectedConversation();
@@ -2475,6 +2896,7 @@
         selectedCharacter = null;
         memories = [];
         events = [];
+        resetSearchRanking();
         clearInterval(refreshTimer);
       } else if (action === "back-palace") {
         view = "palace";
@@ -2540,6 +2962,7 @@
 
     async function saveChatMemorySetting(enabled) {
       chatMemoryEnabled = Boolean(enabled);
+      chatSettingCache.clear();
       const saved = await storageSet(api, CHAT_MEMORY_KEY, chatMemoryEnabled);
       notify(saved
         ? (chatMemoryEnabled ? "记忆宫殿已参与聊天回复" : "已关闭，记忆宫殿不再参与聊天回复")
@@ -2561,6 +2984,7 @@
         apiKey: apiKey
       };
       embeddingCache.clear();
+      resetSearchRanking();
       await storageSet(api, EMBEDDING_KEY, embeddingConfig);
       notify(embeddingConfig.enabled ? "真实嵌入已启用" : "已保存，本地语义近似仍会工作");
       view = selectedConversationId ? "palace" : "select";
@@ -2695,6 +3119,7 @@
       } else if (action === "view-all") {
         view = "all";
         searchQuery = "";
+        resetSearchRanking();
         render();
       } else if (action === "view-events") {
         view = "events";
@@ -2728,7 +3153,11 @@
       const input = event.target.closest("#mp-search-input");
       if (input && event.key === "Enter") {
         event.preventDefault();
-        searchQuery = input.value.trim();
+        const nextQuery = input.value.trim();
+        if (nextQuery !== searchQuery) {
+          resetSearchRanking();
+        }
+        searchQuery = nextQuery;
         view = searchQuery ? "search" : "all";
         render();
       }
@@ -2747,7 +3176,11 @@
         return;
       }
       if (event.target && event.target.id === "mp-search-input") {
-        searchQuery = String(event.target.value || "").trim();
+        const nextQuery = String(event.target.value || "").trim();
+        if (nextQuery !== searchQuery) {
+          resetSearchRanking();
+        }
+        searchQuery = nextQuery;
         if (searchQuery) {
           view = "search";
         } else if (view === "search") {
@@ -2836,11 +3269,18 @@
       return "";
     }
     try {
-      const recent = await api.memory.getShortTerm({
+      const recent = await settleWithTimeout(api.memory.getShortTerm({
         conversationId: conversationId,
         limit: 6
-      });
-      return normalizeList(recent).map(extractText).filter(Boolean).slice(-4).join("\n");
+      }), 350, []);
+      const records = Array.isArray(recent)
+        ? recent
+        : recent && Array.isArray(recent.items)
+          ? recent.items
+          : recent && Array.isArray(recent.messages)
+            ? recent.messages
+            : [];
+      return records.map(extractText).filter(Boolean).slice(-4).join("\n");
     } catch (error) {
       return "";
     }
@@ -2850,11 +3290,21 @@
     if (!api || !conversationId) {
       return false;
     }
-    const globallyEnabled = await storageGet(api, CHAT_MEMORY_KEY, true);
-    if (globallyEnabled === false) {
-      return false;
+    const key = String(conversationId);
+    const cached = chatSettingCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
     }
-    return (await storageGet(api, "memoryPalaceEnabled:" + conversationId, true)) !== false;
+    const values = await Promise.all([
+      settleWithTimeout(storageGet(api, CHAT_MEMORY_KEY, true), CHAT_CONTEXT_TIMEOUT_MS, true),
+      settleWithTimeout(storageGet(api, "memoryPalaceEnabled:" + conversationId, true), CHAT_CONTEXT_TIMEOUT_MS, true)
+    ]);
+    const enabled = values[0] !== false && values[1] !== false;
+    chatSettingCache.set(key, {
+      value: enabled,
+      expiresAt: Date.now() + CHAT_SETTING_TTL_MS
+    });
+    return enabled;
   }
 
   function fallbackRecentEntries(memories, query, personality) {
@@ -2874,25 +3324,59 @@
   async function buildChatContext(ctx) {
     const api = getHostApi();
     const conversationId = conversationIdFromContext(ctx);
-    if (!api || !conversationId || !api.memory || typeof api.memory.getLongTerm !== "function") {
+    if (!api || !conversationId || !api.memory || (
+      typeof api.memory.getLongTerm !== "function" &&
+      typeof api.memory.search !== "function"
+    )) {
       return null;
     }
-    if (!(await isChatMemoryEnabled(api, conversationId))) {
+    const setting = chatSettingCache.get(String(conversationId));
+    if (!setting || setting.expiresAt <= Date.now()) {
+      scheduleChatWarmup(api, conversationId, latestTextFromContext(ctx));
       return null;
     }
-    const query = await getContextQuery(api, ctx);
+    if (!setting.value) {
+      return null;
+    }
+    const query = latestTextFromContext(ctx);
     if (!query) {
       return null;
     }
-    const bundle = await loadMemoryBundle(api, conversationId);
-    const memories = bundle.memories;
+    const cachedBundle = cachedChatBundle(conversationId);
+    if (!cachedBundle) {
+      scheduleChatWarmup(api, conversationId, query);
+      return null;
+    }
+    // Once a conversation is warm, use the in-memory index and do not touch Roche on every turn.
+    const hostResults = cachedBundle.hostQuery === query && Array.isArray(cachedBundle.hostResults)
+      ? cachedBundle.hostResults
+      : [];
+    const bundle = cachedBundle;
+    let memories = bundle && Array.isArray(bundle.memories) ? bundle.memories.slice() : [];
+    const hostMemories = normalizeHostResults(hostResults, conversationId, {});
+    if (memories.length) {
+      memories = mergeMemoryLists(memories, hostMemories);
+    } else {
+      memories = hostMemories;
+    }
     if (!memories.length) {
       return null;
     }
     const personaText = contextPersonaText(ctx);
     const personality = inferPersonality(personaText);
     const emotion = detectEmotion(query);
-    const ranked = await rankMemoriesWithHost(api, conversationId, query, memories);
+    const ranked = await settleWithTimeout(rankMemoriesWithHost(api, conversationId, query, memories, {
+      hostResults: hostResults,
+      // Keep external embedding out of the normal chat path. It remains available in the app search.
+      useExternalEmbedding: false,
+      excludeHostOverlap: Boolean(bundle && hostResults.length),
+      semanticMode: hostResults.length ? "Roche 候选 + 本地语义近似" : "本地语义近似"
+    }), CHAT_CONTEXT_TIMEOUT_MS, {
+      entries: [],
+      hostOverlapIds: [],
+      hostOverlapSignatures: [],
+      semanticMode: "本地语义近似"
+    });
     let entries = ranked.entries.length
       ? dedupeEntries(ranked.entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT)
       : dedupeEntries(fallbackRecentEntries(memories, query, personality), ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT);
@@ -2911,170 +3395,8 @@
       tendency: ruminationTendency(personaText)
     });
     entries = dedupeEntries(entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT);
-    await recordAutomaticRecall(api, conversationId, entries);
-    return formatMemoryContext(entries, emotion, personality, ranked.semanticMode);
-  }
-
-  function toolMemoryResult(entry) {
-    const memory = entry.memory;
-    return {
-      id: memory.id,
-      text: memory.text,
-      room: memoryRoomName(memory),
-      roomId: memory.room,
-      emotion: memory.emotion,
-      importance: Math.round(memory.importance),
-      retention: Math.round(retentionAt(memory, 0) * 100) / 100,
-      due: isDue(memory),
-      score: Math.round((entry.score || 0) * 1000) / 1000,
-      relatedIds: relationObjects(memory).slice(0, 6).map(function (relation) { return relation.id; })
-    };
-  }
-
-  async function executeSearchMemory(ctx, args) {
-    const api = getHostApi();
-    const conversationId = conversationIdFromContext(ctx);
-    const query = String(args && args.query || "").trim();
-    if (!api || !conversationId || !query) {
-      return { ok: false, results: [], message: "缺少会话或查询词" };
-    }
-    if (!(await isChatMemoryEnabled(api, conversationId))) {
-      return { ok: false, results: [], disabled: true, message: "记忆宫殿未参与聊天回复" };
-    }
-    const bundle = await loadMemoryBundle(api, conversationId);
-    const ranked = await rankMemoriesWithHost(api, conversationId, query, bundle.memories);
-    const personality = inferPersonality(contextPersonaText(ctx));
-    const emotion = detectEmotion(query);
-    const limit = clamp(args && args.limit || 6, 1, CHAT_CONTEXT_LIMIT);
-    let entries = dedupeEntries(ranked.entries).slice(0, limit);
-    entries = diffusionActivate(entries, bundle.memories, personality);
-    entries = dedupeEntries(entries);
-    entries = applyEmotionPriming(entries, emotion);
-    entries = dedupeEntries(entries).slice(0, limit);
-    return {
-      ok: true,
-      query: query,
-      mode: ranked.semanticMode + " + BM25",
-      results: entries.map(toolMemoryResult)
-    };
-  }
-
-  async function executeSaveMemory(ctx, args) {
-    const api = getHostApi();
-    const conversationId = conversationIdFromContext(ctx);
-    const text = String(args && (args.summaryText || args.text || args.content) || "").trim();
-    if (!api || !conversationId || !text || !api.memory || typeof api.memory.write !== "function") {
-      return { ok: false, message: "缺少会话、记忆内容或 Roche 写入接口" };
-    }
-    if (!(await isChatMemoryEnabled(api, conversationId))) {
-      return { ok: false, disabled: true, message: "记忆宫殿未参与聊天回复" };
-    }
-    const room = normalizeRoomId(args && args.room) || classifyRoom(text, "fact");
-    const emotion = normalizeEmotion(args && args.emotion || detectEmotion(text).label);
-    const importance = clamp(args && args.importance || estimateImportance(text, "fact"), 1, 10);
-    try {
-      const result = await api.memory.write({
-        conversationId: conversationId,
-        summaryText: text,
-        who: args && args.who || "user",
-        action: args && args.action || text,
-        when: args && args.when || "对话中",
-        where: args && args.where || "当前会话",
-        source: args && args.source || "memory-palace"
-      });
-      const id = result && (result.id || result.memoryId || result.memory && result.memory.id);
-      if (id) {
-        const metadata = await storageGet(api, AUTO_SAVE_KEY + conversationId, {});
-        metadata[id] = {
-          room: room,
-          importance: importance,
-          emotion: emotion,
-          emotionIntensity: detectEmotion(text).intensity,
-          lastRecall: Date.now(),
-          reviewCount: 0,
-          stability: null,
-          nextReviewAt: null,
-          accessCount: 0,
-          tags: unique(toArray(args && args.tags).map(String)),
-          notes: String(args && args.notes || ""),
-          relations: [],
-          eventId: args && args.eventId || null,
-          updatedAt: Date.now()
-        };
-        await storageSet(api, AUTO_SAVE_KEY + conversationId, metadata);
-      }
-      return { ok: true, id: id || null, room: room, importance: importance };
-    } catch (error) {
-      return { ok: false, message: "Roche 拒绝了这次记忆写入" };
-    }
-  }
-
-  async function executeReviewMemory(ctx, args) {
-    const api = getHostApi();
-    const conversationId = conversationIdFromContext(ctx);
-    const id = String(args && args.id || "");
-    if (!api || !conversationId || !id) {
-      return { ok: false, message: "缺少会话或记忆 id" };
-    }
-    if (!(await isChatMemoryEnabled(api, conversationId))) {
-      return { ok: false, disabled: true, message: "记忆宫殿未参与聊天回复" };
-    }
-    const bundle = await loadMemoryBundle(api, conversationId);
-    const memory = bundle.memories.find(function (item) { return String(item.id) === id; });
-    if (!memory) {
-      return { ok: false, message: "没有找到这条记忆" };
-    }
-    reinforceMemory(memory, args && args.quality || "good");
-    await persistMemoryBundle(api, conversationId, bundle.memories, bundle.state);
-    await syncMemoryPatch(api, memory);
-    return {
-      ok: true,
-      id: id,
-      nextReviewAt: memory.nextReviewAt,
-      retention: Math.round(retentionAt(memory, 0) * 100) / 100
-    };
-  }
-
-  function createChatTools() {
-    return [
-      {
-        id: "search_memory",
-        description: "在当前角色的记忆宫殿中搜索相关片段，并返回房间、情绪、保持率和关联 id。",
-        parameters: {
-          query: "string",
-          limit: "number"
-        },
-        async execute(args, ctx) {
-          return executeSearchMemory(ctx, args);
-        }
-      },
-      {
-        id: "save_memory",
-        description: "在确实出现长期价值的新事实、关系节点或期盼时保存一条记忆，避免记录普通寒暄。",
-        parameters: {
-          summaryText: "string",
-          room: "string",
-          importance: "number",
-          emotion: "string",
-          tags: "array",
-          notes: "string"
-        },
-        async execute(args, ctx) {
-          return executeSaveMemory(ctx, args);
-        }
-      },
-      {
-        id: "review_memory",
-        description: "当一条记忆被再次确认或自然回忆时强化它，并按艾宾浩斯保持率推迟下一次复习。",
-        parameters: {
-          id: "string",
-          quality: "string"
-        },
-        async execute(args, ctx) {
-          return executeReviewMemory(ctx, args);
-        }
-      }
-    ];
+    scheduleAutomaticRecall(api, conversationId, entries);
+    return formatMemoryContext(entries, emotion, personality, ranked.semanticMode, { compact: true });
   }
 
   function exposeTestSurface() {
@@ -3087,6 +3409,8 @@
       inferPersonality: inferPersonality,
       normalizeMemories: normalizeMemories,
       rankMemories: rankMemories,
+      rankMemoriesWithHost: rankMemoriesWithHost,
+      requestEmbedding: requestEmbedding,
       applyEmotionPriming: applyEmotionPriming,
       diffusionActivate: diffusionActivate,
       checkRumination: checkRumination,
@@ -3096,6 +3420,7 @@
       buildRelationGraph: buildRelationGraph,
       buildEventGroups: buildEventGroups,
       applyMemoryMaintenance: applyMemoryMaintenance,
+      buildChatContext: buildChatContext,
       memoryTextSignature: memoryTextSignature,
       dedupeEntries: dedupeEntries,
       resolveEmbeddingModelsEndpoint: resolveEmbeddingModelsEndpoint,
@@ -3131,9 +3456,8 @@
         }
       ],
       chat: {
-        scope: "all",
-        contextProvider: buildChatContext,
-        tools: createChatTools()
+        // 只提供注入上下文，不声明工具，保持 Roche 原生的单次流式请求路径。
+        contextProvider: buildChatContext
       }
     });
   }
