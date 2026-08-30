@@ -2,7 +2,7 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.1.0";
+  const PLUGIN_VERSION = "9.1.1";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
@@ -10,7 +10,6 @@
   const CHAT_MEMORY_KEY = "memoryPalaceChatEnabled";
   const HOST_OVERLAP_LIMIT = 8;
   const CHAT_CONTEXT_LIMIT = 8;
-  const CHAT_SEARCH_LIMIT = 40;
   const CHAT_MEMORY_READ_LIMIT = 400;
   const CHAT_CONTEXT_TIMEOUT_MS = 900;
   const CHAT_CONTEXT_CHAR_BUDGET = 1800;
@@ -40,6 +39,7 @@
   const chatWarmupRequests = new Map();
   const chatSettingCache = new Map();
   const automaticRecallQueue = new Map();
+  const automaticRecallTimers = new Map();
 
   const ROOM_RULES = Object.freeze({
     livingRoom: {
@@ -1756,42 +1756,25 @@
     }
   }
 
-  function scheduleChatWarmup(api, conversationId, query) {
+  function scheduleChatWarmup(api, conversationId) {
     const key = String(conversationId || "");
-    const source = String(query || "").trim();
-    if (!key || !source || chatWarmupRequests.has(key)) {
+    if (!key || chatWarmupRequests.has(key)) {
       return;
     }
-    const task = (async function () {
-      if (!(await isChatMemoryEnabled(api, key))) {
-        return;
-      }
-      const parallel = await Promise.all([
-        settleWithTimeout(loadChatMemoryBundle(api, key), CHAT_INDEX_TIMEOUT_MS, null),
-        settleWithTimeout(callHostSearch(api, key, source, CHAT_SEARCH_LIMIT, CHAT_CONTEXT_TIMEOUT_MS), CHAT_CONTEXT_TIMEOUT_MS, [])
-      ]);
-      const bundle = parallel[0];
-      const hostResults = Array.isArray(parallel[1]) ? parallel[1] : [];
-      const hostMemories = normalizeHostResults(hostResults, key, {});
-      if (bundle) {
-        bundle.memories = mergeMemoryLists(bundle.memories, hostMemories);
-        bundle.hostResults = hostResults;
-        bundle.hostQuery = source;
-        bundle.chatReady = true;
-        cacheChatBundle(key, bundle);
-      } else if (hostMemories.length) {
-        cacheChatBundle(key, {
-          memories: hostMemories,
-          state: {},
-          events: [],
-          changed: false,
-          chatFastPath: true,
-          hostResults: hostResults,
-          hostQuery: source,
-          chatReady: true
-        });
-      }
-    })();
+    const task = new Promise(function (resolve, reject) {
+      setTimeout(function () {
+        (async function () {
+          if (!(await isChatMemoryEnabled(api, key))) {
+            return;
+          }
+          const bundle = await settleWithTimeout(loadChatMemoryBundle(api, key), CHAT_INDEX_TIMEOUT_MS, null);
+          if (bundle) {
+            bundle.chatReady = true;
+            cacheChatBundle(key, bundle);
+          }
+        })().then(resolve, reject);
+      }, 0);
+    });
     chatWarmupRequests.set(key, task);
     task.then(function () {
       if (chatWarmupRequests.get(key) === task) {
@@ -1953,20 +1936,27 @@
       return;
     }
     const key = String(conversationId);
-    const previous = automaticRecallQueue.get(key) || Promise.resolve();
-    const task = previous.catch(function () {}).then(function () {
-      return recordAutomaticRecall(api, conversationId, snapshot);
-    });
-    automaticRecallQueue.set(key, task);
-    task.then(function () {
-      if (automaticRecallQueue.get(key) === task) {
-        automaticRecallQueue.delete(key);
-      }
-    }, function () {
-      if (automaticRecallQueue.get(key) === task) {
-        automaticRecallQueue.delete(key);
-      }
-    });
+    if (automaticRecallTimers.has(key) || automaticRecallQueue.has(key)) {
+      return;
+    }
+    const timer = setTimeout(function () {
+      automaticRecallTimers.delete(key);
+      const previous = automaticRecallQueue.get(key) || Promise.resolve();
+      const task = previous.catch(function () {}).then(function () {
+        return recordAutomaticRecall(api, conversationId, snapshot);
+      });
+      automaticRecallQueue.set(key, task);
+      task.then(function () {
+        if (automaticRecallQueue.get(key) === task) {
+          automaticRecallQueue.delete(key);
+        }
+      }, function () {
+        if (automaticRecallQueue.get(key) === task) {
+          automaticRecallQueue.delete(key);
+        }
+      });
+    }, 0);
+    automaticRecallTimers.set(key, timer);
   }
 
   function conversationIdFromContext(ctx) {
@@ -2404,6 +2394,14 @@
         value: chatMemoryEnabled,
         expiresAt: Date.now() + CHAT_SETTING_TTL_MS
       });
+      cacheChatBundle(String(selectedConversationId), {
+        memories: memories.slice(),
+        state: {},
+        events: [],
+        changed: false,
+        chatFastPath: true,
+        chatReady: true
+      });
       if (bundle.changed) {
         schedulePersist();
       }
@@ -2819,7 +2817,7 @@
         '<div class="mp-field"><label for="mp-embedding-endpoint">嵌入接口地址</label><input id="mp-embedding-endpoint" value="' + escapeAttr(config.endpoint || "") + '" placeholder="https://.../embeddings"></div>' +
         '<div class="mp-field"><label for="mp-embedding-models-endpoint">模型列表接口地址（可选）</label><input id="mp-embedding-models-endpoint" value="' + escapeAttr(config.modelsEndpoint || "") + '" placeholder="留空自动推断 /models；Ollama 可填 /api/tags"></div>' +
         '<div class="mp-form-row"><div class="mp-field"><label for="mp-embedding-model">模型</label><div class="mp-input-action"><input id="mp-embedding-model" value="' + escapeAttr(config.model || "text-embedding-3-small") + '">' + actionButton("fetch-embedding-models", "拉取模型", "refresh", "", "从模型列表接口获取可选模型") + "</div><select id=\"mp-embedding-model-picker\" class=\"mp-model-picker\"" + (embeddingModels.length ? "" : " disabled") + ">" + renderEmbeddingModelOptions(config.model || "text-embedding-3-small") + '</select><span id="mp-embedding-model-status" class="mp-field-note">' + escapeHtml(modelStatus) + "</span></div><div class=\"mp-field\"><label for=\"mp-embedding-key\">API Key</label><input id=\"mp-embedding-key\" type=\"password\" value=\"" + escapeAttr(config.apiKey || "") + '"></div></div>' +
-        '<div class="mp-help">外部嵌入会把每次检索问题发送到你填写的 embedding 服务，由它转换成向量；只有与已有记忆向量维度匹配时才参与语义排序。关闭或没有接口地址时，不发送外部请求，改用本地语义近似和 Roche 宿主搜索。API Key 只保存在插件隔离存储中，但检索文字仍会发送给该服务。</div>' +
+        '<div class="mp-help">外部嵌入会把每次检索问题发送到你填写的 embedding 服务，由它转换成向量；只有与已有记忆向量维度匹配时才参与语义排序。关闭或没有接口地址时，不发送外部请求，改用本地语义近似。API Key 只保存在插件隔离存储中，但检索文字仍会发送给该服务。</div>' +
         '<div>' + actionButton("save-settings", "保存检索设置", "check", "primary") + "</div></div></div></div></div>";
     }
 
@@ -3321,18 +3319,15 @@
     });
   }
 
-  async function buildChatContext(ctx) {
+  function buildChatContext(ctx) {
     const api = getHostApi();
     const conversationId = conversationIdFromContext(ctx);
-    if (!api || !conversationId || !api.memory || (
-      typeof api.memory.getLongTerm !== "function" &&
-      typeof api.memory.search !== "function"
-    )) {
+    if (!api || !conversationId || !api.memory || typeof api.memory.getLongTerm !== "function") {
       return null;
     }
     const setting = chatSettingCache.get(String(conversationId));
     if (!setting || setting.expiresAt <= Date.now()) {
-      scheduleChatWarmup(api, conversationId, latestTextFromContext(ctx));
+      scheduleChatWarmup(api, conversationId);
       return null;
     }
     if (!setting.value) {
@@ -3344,44 +3339,24 @@
     }
     const cachedBundle = cachedChatBundle(conversationId);
     if (!cachedBundle) {
-      scheduleChatWarmup(api, conversationId, query);
+      scheduleChatWarmup(api, conversationId);
       return null;
     }
-    // Once a conversation is warm, use the in-memory index and do not touch Roche on every turn.
-    const hostResults = cachedBundle.hostQuery === query && Array.isArray(cachedBundle.hostResults)
-      ? cachedBundle.hostResults
-      : [];
+    // The provider is deliberately synchronous: only the warm in-memory index can enter the chat request.
     const bundle = cachedBundle;
-    let memories = bundle && Array.isArray(bundle.memories) ? bundle.memories.slice() : [];
-    const hostMemories = normalizeHostResults(hostResults, conversationId, {});
-    if (memories.length) {
-      memories = mergeMemoryLists(memories, hostMemories);
-    } else {
-      memories = hostMemories;
-    }
+    const memories = bundle && Array.isArray(bundle.memories) ? bundle.memories.slice() : [];
     if (!memories.length) {
       return null;
     }
     const personaText = contextPersonaText(ctx);
     const personality = inferPersonality(personaText);
     const emotion = detectEmotion(query);
-    const ranked = await settleWithTimeout(rankMemoriesWithHost(api, conversationId, query, memories, {
-      hostResults: hostResults,
-      // Keep external embedding out of the normal chat path. It remains available in the app search.
-      useExternalEmbedding: false,
-      excludeHostOverlap: Boolean(bundle && hostResults.length),
-      semanticMode: hostResults.length ? "Roche 候选 + 本地语义近似" : "本地语义近似"
-    }), CHAT_CONTEXT_TIMEOUT_MS, {
-      entries: [],
-      hostOverlapIds: [],
-      hostOverlapSignatures: [],
-      semanticMode: "本地语义近似"
-    });
-    let entries = ranked.entries.length
-      ? dedupeEntries(ranked.entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT)
-      : dedupeEntries(fallbackRecentEntries(memories, query, personality), ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT);
+    const ranked = rankMemories(query, memories);
+    let entries = ranked.length
+      ? dedupeEntries(ranked).slice(0, CHAT_CONTEXT_LIMIT)
+      : dedupeEntries(fallbackRecentEntries(memories, query, personality)).slice(0, CHAT_CONTEXT_LIMIT);
     entries = diffusionActivate(entries, memories, personality);
-    entries = dedupeEntries(entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures);
+    entries = dedupeEntries(entries);
     entries = applyEmotionPriming(entries, emotion);
     entries = entries.map(function (entry) {
       const contextScore = memoryScoreForContext(entry.memory, query, personality);
@@ -3394,9 +3369,9 @@
     entries = checkRumination(entries, memories, {
       tendency: ruminationTendency(personaText)
     });
-    entries = dedupeEntries(entries, ranked.hostOverlapIds, ranked.hostOverlapSignatures).slice(0, CHAT_CONTEXT_LIMIT);
+    entries = dedupeEntries(entries).slice(0, CHAT_CONTEXT_LIMIT);
     scheduleAutomaticRecall(api, conversationId, entries);
-    return formatMemoryContext(entries, emotion, personality, ranked.semanticMode, { compact: true });
+    return formatMemoryContext(entries, emotion, personality, "本地语义近似", { compact: true });
   }
 
   function exposeTestSurface() {
