@@ -2,17 +2,17 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.1.1";
+  const PLUGIN_VERSION = "9.1.2";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
   const EMBEDDING_KEY = "memoryPalaceEmbeddingConfig";
   const CHAT_MEMORY_KEY = "memoryPalaceChatEnabled";
   const HOST_OVERLAP_LIMIT = 8;
-  const CHAT_CONTEXT_LIMIT = 8;
+  const CHAT_CONTEXT_LIMIT = 4;
   const CHAT_MEMORY_READ_LIMIT = 400;
   const CHAT_CONTEXT_TIMEOUT_MS = 900;
-  const CHAT_CONTEXT_CHAR_BUDGET = 1800;
+  const CHAT_CONTEXT_CHAR_BUDGET = 1200;
   const CHAT_INDEX_TIMEOUT_MS = 3000;
   const CHAT_BUNDLE_TTL_MS = 45 * 1000;
   const CHAT_EMPTY_BUNDLE_TTL_MS = 5 * 1000;
@@ -2560,7 +2560,7 @@
         '<section class="mp-select-hero"><div class="mp-kicker">MEMORY PALACE</div><h1 class="mp-h1">选择一个角色</h1><p class="mp-lede">进入 Ta 的七个房间，查看关系留下的痕迹、正在衰减的片段，以及会在聊天中被重新唤起的记忆。</p></section>' +
         '<div class="mp-character-grid">' + (cards || '<div class="mp-panel mp-empty"><strong>还没有可用角色</strong>请先在 Roche 中创建角色或打开一段对话。</div>') + "</div>" +
         '<div class="mp-select-config"><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>通用语义检索</strong><div>' + (embeddingConfig && embeddingConfig.enabled ? "已启用真实嵌入，所有角色共用此配置" : "当前使用本地语义近似，所有角色共用此配置") + '</div></div><button class="mp-button" data-action="open-settings">配置 embedding</button></div><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>参与聊天记忆</strong><div>' + (chatMemoryEnabled ? "已开启，相关记忆会参与 AI 回复" : "已关闭，仅保留记忆宫殿管理功能") + '</div></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div></div>' +
-        '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行；聊天自动注入最多 8 条记忆。</div></div>';
+        '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行；聊天自动注入最多 4 条记忆。</div></div>';
     }
 
     function renderPalacePage() {
