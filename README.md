@@ -1,4 +1,4 @@
-# Roche 记忆宫殿 v9.1.2
+# Roche 记忆宫殿 v9.2.0
 
 七房间记忆管理系统。它把 Roche 的长期记忆整理成房间、事件和关联边，再用保持率、混合检索、角色性格和当前情绪决定每轮聊天更容易想起什么。
 
@@ -24,9 +24,11 @@
 - 情绪启动：当前情绪与记忆情绪匹配时，该记忆会获得 1.3 倍加权。
 - 反刍检查：按角色反刍倾向，以 20% 乘数计算随机侵入性念头。
 - 召回去重：同一文本或同一 ID 只保留一份；插件内部会去重，避免自己的 core、facts、vectors 重复注入。
-- 注入上限：自动聊天上下文最多返回 4 条，并限制在约 1200 个字符内；长期记忆读取较多条只是为了本地排序，不会全部发送给 AI。
+- 注入上限：自动聊天上下文最多返回 8 条，并限制在约 1800 个字符内；长期记忆读取较多条只是为了本地排序，不会全部发送给 AI。
 
-Roche 当前公开插件 API 提供 memory.getLongTerm() 和文本 memory.search()，没有公开的向量查询、原生 Top 8 结果或 embedding 接管接口。聊天首次遇到未缓存的会话时，插件只在后台读取约 400 条长期记录，本轮立即交回 Roche 原生流式回复；缓存建立后复用本地索引，不会每轮读取 Roche，也不会在聊天路径调用 memory.search 或外部 embedding。它不会占用或改写 Roche 原生的 8 条向量记忆。两套召回结果由 Roche 独立处理，公开 API 无法保证跨系统重复消除；插件自身最多只注入 4 条、约 1200 字符的记忆上下文。
+Roche 当前公开插件 API 提供 memory.getLongTerm() 和文本 memory.search()，没有公开的向量查询、原生 Top 8 结果或 embedding 接管接口。聊天首次遇到未缓存的会话时，插件只在后台读取约 400 条长期记录，本轮立即交回 Roche 原生流式回复；缓存建立后复用本地索引，不会每轮读取 Roche，也不会在聊天路径调用 memory.search 或外部 embedding。它不会占用或改写 Roche 原生的 8 条向量记忆。两套召回结果由 Roche 独立处理，公开 API 无法保证跨系统重复消除；当前关闭 Roche 原生向量召回时，插件自身最多注入 8 条、约 1800 字符的记忆上下文。
+
+宫殿首页的“最近一次聊天召回”面板会记录本角色最近一次请求：显示是否已注入、查询文本、缓存状态、候选/注入数量，以及每条记忆的语义分、BM25 分和最终分。首次冷启动显示“后台预热中”，下一条消息命中后显示“本轮已注入”；记录只用于插件内验证，不会进入 AI 上下文。
 
 首页的“参与聊天记忆”是全局开关。关闭后，插件仍可用于查看、搜索、编辑、关联和自动遗忘，但不会自动向 AI 注入记忆上下文。
 
@@ -56,7 +58,7 @@ Roche 当前公开插件 API 提供 memory.getLongTerm() 和文本 memory.search
 
 ## Roche 聊天桥
 
-插件只使用 Roche 的 `contextProvider` 在主请求前同步读取已缓存的最多 4 条内部记忆上下文，不注册聊天工具、不调用 `roche.ai.chat()`，因此不会触发工具协议或第二次主模型请求。Roche 仍负责原生的模型调用和流式回复；未命中缓存时插件立即返回空上下文并在后台预热，热缓存命中后使用本地排序。
+插件只使用 Roche 的 `contextProvider` 在主请求前同步读取已缓存的最多 8 条内部记忆上下文，不注册聊天工具、不调用 `roche.ai.chat()`，因此不会触发工具协议或第二次主模型请求。Roche 仍负责原生的模型调用和流式回复；未命中缓存时插件立即返回空上下文并在后台预热，热缓存命中后使用本地排序。
 
 为避免影响正常聊天，未命中缓存的这一轮不注入记忆，下一轮开始使用预热结果；长期记忆接口超时、异常或没有可用记忆时，也会直接按原生流程回复。召回记录在后台写入，不阻塞主请求。自动聊天只使用缓存后的本地语义近似，页面里的外部 embedding 设置不会增加聊天 API 请求。
 
@@ -66,7 +68,7 @@ Roche 当前公开插件 API 提供 memory.getLongTerm() 和文本 memory.search
 
 https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/manifest.json
 
-当前版本：9.1.2
+当前版本：9.2.0
 
 ## 权限与数据
 
@@ -74,6 +76,7 @@ https://raw.githubusercontent.com/zxinyi404-maker/roche-memory-palace/main/manif
 
 memoryPalaceMeta:{conversationId}
 memoryPalaceState:{conversationId}
+memoryPalaceChatRecall:{conversationId}
 memoryPalaceEmbeddingConfig
 
 卸载或清除插件存储不会删除 Roche 主记忆。嵌入接口地址、模型和 API Key 也只保存在本插件的隔离存储中。

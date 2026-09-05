@@ -2,17 +2,17 @@
   "use strict";
 
   const PLUGIN_ID = "memory-palace";
-  const PLUGIN_VERSION = "9.1.2";
+  const PLUGIN_VERSION = "9.2.0";
   const DAY_MS = 24 * 60 * 60 * 1000;
   const AUTO_SAVE_KEY = "memoryPalaceMeta:";
   const STATE_KEY = "memoryPalaceState:";
   const EMBEDDING_KEY = "memoryPalaceEmbeddingConfig";
   const CHAT_MEMORY_KEY = "memoryPalaceChatEnabled";
   const HOST_OVERLAP_LIMIT = 8;
-  const CHAT_CONTEXT_LIMIT = 4;
+  const CHAT_CONTEXT_LIMIT = 8;
   const CHAT_MEMORY_READ_LIMIT = 400;
   const CHAT_CONTEXT_TIMEOUT_MS = 900;
-  const CHAT_CONTEXT_CHAR_BUDGET = 1200;
+  const CHAT_CONTEXT_CHAR_BUDGET = 1800;
   const CHAT_INDEX_TIMEOUT_MS = 3000;
   const CHAT_BUNDLE_TTL_MS = 45 * 1000;
   const CHAT_EMPTY_BUNDLE_TTL_MS = 5 * 1000;
@@ -40,6 +40,10 @@
   const chatSettingCache = new Map();
   const automaticRecallQueue = new Map();
   const automaticRecallTimers = new Map();
+  const chatRecallTrace = new Map();
+  const chatRecallTraceTimers = new Map();
+  const CHAT_RECALL_TRACE_KEY = "memoryPalaceChatRecall:";
+  const CHAT_RECALL_TRACE_TTL_MS = 7 * DAY_MS;
 
   const ROOM_RULES = Object.freeze({
     livingRoom: {
@@ -1893,6 +1897,58 @@
     return lines.join("\n");
   }
 
+  function recallTraceEntries(entries) {
+    return toArray(entries).slice(0, CHAT_CONTEXT_LIMIT).map(function (entry) {
+      const memory = entry && entry.memory;
+      return {
+        id: memory && memory.id ? String(memory.id) : "",
+        text: truncate(memory && memory.text || "", 320),
+        room: memoryRoomName(memory),
+        score: Number(entry && entry.score) || 0,
+        semanticScore: Number(entry && entry.semanticScore) || 0,
+        bm25Score: Number(entry && entry.bm25Score) || 0,
+        hop: Number(entry && entry.hop) || 0,
+        emotionPrimed: Boolean(entry && entry.emotionPrimed),
+        intrusive: Boolean(entry && entry.intrusive)
+      };
+    }).filter(function (entry) {
+      return entry.text;
+    });
+  }
+
+  function rememberChatRecallTrace(api, conversationId, details) {
+    const key = String(conversationId || "");
+    if (!key) {
+      return null;
+    }
+    const settings = details || {};
+    const trace = {
+      version: 1,
+      conversationId: key,
+      timestamp: Date.now(),
+      status: String(settings.status || "empty"),
+      reason: String(settings.reason || ""),
+      query: truncate(settings.query || "", 180),
+      cache: String(settings.cache || ""),
+      mode: String(settings.mode || "本地语义近似 + BM25"),
+      candidateCount: Math.max(0, Number(settings.candidateCount) || 0),
+      injectedCount: Math.max(0, Number(settings.injectedCount) || 0),
+      contextChars: Math.max(0, Number(settings.contextChars) || 0),
+      entries: recallTraceEntries(settings.entries)
+    };
+    chatRecallTrace.set(key, trace);
+    const previousTimer = chatRecallTraceTimers.get(key);
+    if (previousTimer) {
+      clearTimeout(previousTimer);
+    }
+    const timer = setTimeout(function () {
+      chatRecallTraceTimers.delete(key);
+      settleWithTimeout(storageSet(api, CHAT_RECALL_TRACE_KEY + key, trace), 800, false).catch(function () {});
+    }, 0);
+    chatRecallTraceTimers.set(key, timer);
+    return trace;
+  }
+
   async function recordAutomaticRecall(api, conversationId, entries) {
     if (!entries.length) {
       return;
@@ -2041,6 +2097,28 @@
     ".mp-metric{padding:11px 12px;border-left:3px solid #d6c9c4;background:#faf7f5;}",
     ".mp-metric strong{display:block;font-family:Georgia,'Songti SC',serif;font-size:20px;font-weight:400;}",
     ".mp-metric span{display:block;margin-top:5px;color:var(--muted);font-size:10px;}",
+    ".mp-recall-panel{padding:18px 20px;}",
+    ".mp-recall-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding-bottom:14px;border-bottom:1px solid #eee7e4;}",
+    ".mp-recall-status{display:inline-flex;align-items:center;gap:6px;color:#718b7a;font-size:11px;white-space:nowrap;}",
+    ".mp-recall-status::before{content:\"\";display:block;width:7px;height:7px;border-radius:50%;background:#86a98f;}",
+    ".mp-recall-status.pending{color:#9b8062;}",
+    ".mp-recall-status.pending::before{background:#c5a477;}",
+    ".mp-recall-status.empty,.mp-recall-status.disabled{color:#9a9190;}",
+    ".mp-recall-status.empty::before,.mp-recall-status.disabled::before{background:#b9aeaa;}",
+    ".mp-recall-query{margin:12px 0 0;color:var(--muted);font-size:11px;line-height:1.6;word-break:break-word;}",
+    ".mp-recall-query strong{color:var(--ink);font-weight:500;}",
+    ".mp-recall-list{display:grid;gap:8px;margin-top:14px;}",
+    ".mp-recall-item{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:start;gap:10px;padding:11px 12px;border:1px solid #eee7e4;border-radius:8px;background:#fcfaf8;cursor:pointer;transition:border-color .16s,background .16s;}",
+    ".mp-recall-item:hover{border-color:#cdbdb8;background:#fff;}",
+    ".mp-recall-rank{font-family:Georgia,'Songti SC',serif;color:#b68591;font-size:16px;line-height:1.2;}",
+    ".mp-recall-copy{min-width:0;}",
+    ".mp-recall-text{margin:0;color:#4a4445;font-size:12px;line-height:1.65;word-break:break-word;}",
+    ".mp-recall-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:5px;color:#9a9190;font-size:10px;line-height:1.5;}",
+    ".mp-recall-score{display:grid;grid-template-columns:repeat(3,auto);gap:7px;color:#8a7b78;font-size:10px;white-space:nowrap;}",
+    ".mp-recall-score span{display:block;}",
+    ".mp-recall-score strong{display:block;margin-top:3px;color:var(--ink);font-family:Georgia,'Songti SC',serif;font-size:13px;font-weight:400;text-align:right;}",
+    ".mp-recall-empty{margin-top:14px;padding:13px 14px;background:#faf7f5;color:var(--muted);font-size:11px;line-height:1.7;}",
+    ".mp-recall-note{margin-top:12px;color:#aaa09e;font-size:10px;line-height:1.6;}",
     ".mp-empty{padding:48px 24px;text-align:center;color:var(--muted);font-size:13px;}",
     ".mp-empty strong{display:block;margin-bottom:8px;color:var(--ink);font-family:Georgia,'Songti SC',serif;font-size:18px;font-weight:400;}",
     ".mp-list{display:grid;gap:10px;}",
@@ -2153,7 +2231,7 @@
     ".mp-switch input:checked+span::after{transform:translateX(18px);}",
     ".mp-switch input:focus-visible+span{box-shadow:0 0 0 3px #eee8f0;}",
     "mark{padding:0 2px;border-radius:2px;background:#f0dfc2;color:inherit;}",
-    "@media (max-width:760px){.mp-shell{padding:20px 15px 38px}.mp-topbar{margin-bottom:22px}.mp-hero{display:block}.mp-stats{margin-top:20px;gap:18px}.mp-room-grid,.mp-character-grid{grid-template-columns:1fr}.mp-insight{grid-template-columns:1fr}.mp-insight-copy{border-right:0;border-bottom:1px solid var(--line)}.mp-due-list{grid-template-columns:1fr}.mp-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mp-form-row{grid-template-columns:1fr}.mp-memory-bottom{align-items:flex-start;flex-direction:column;gap:8px}.mp-actions{gap:5px}.mp-button{padding:0 10px}.mp-input-action{align-items:stretch;flex-wrap:wrap}.mp-input-action input{flex-basis:100%}.mp-input-action .mp-button{width:100%}}"
+    "@media (max-width:760px){.mp-shell{padding:20px 15px 38px}.mp-topbar{margin-bottom:22px}.mp-hero{display:block}.mp-stats{margin-top:20px;gap:18px}.mp-room-grid,.mp-character-grid{grid-template-columns:1fr}.mp-insight{grid-template-columns:1fr}.mp-insight-copy{border-right:0;border-bottom:1px solid var(--line)}.mp-recall-head{align-items:flex-start;flex-direction:column;gap:8px}.mp-recall-item{grid-template-columns:24px minmax(0,1fr)}.mp-recall-score{grid-column:2;grid-template-columns:repeat(3,auto);justify-content:start}.mp-recall-score strong{text-align:left}.mp-due-list{grid-template-columns:1fr}.mp-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mp-form-row{grid-template-columns:1fr}.mp-memory-bottom{align-items:flex-start;flex-direction:column;gap:8px}.mp-actions{gap:5px}.mp-button{padding:0 10px}.mp-input-action{align-items:stretch;flex-wrap:wrap}.mp-input-action input{flex-basis:100%}.mp-input-action .mp-button{width:100%}}"
   ].join("");
 
   function renderRoomIcon(roomId) {
@@ -2277,6 +2355,8 @@
     let embeddingModelsMessage = "";
     let chatMemoryEnabled = true;
     let refreshTimer = null;
+    let recallTraceRefreshTimer = null;
+    let renderedRecallTraceAt = 0;
     let saveTimer = null;
     let toastTimer = null;
     let destroyed = false;
@@ -2402,6 +2482,13 @@
         chatFastPath: true,
         chatReady: true
       });
+      const savedTrace = await storageGet(api, CHAT_RECALL_TRACE_KEY + selectedConversationId, null);
+      const activeTrace = chatRecallTrace.get(String(selectedConversationId));
+      if (savedTrace && typeof savedTrace === "object" && Number(savedTrace.timestamp) > Date.now() - CHAT_RECALL_TRACE_TTL_MS && (
+        !activeTrace || Number(savedTrace.timestamp) >= Number(activeTrace.timestamp)
+      )) {
+        chatRecallTrace.set(String(selectedConversationId), savedTrace);
+      }
       if (bundle.changed) {
         schedulePersist();
       }
@@ -2441,6 +2528,7 @@
 
     function startRefresh() {
       clearInterval(refreshTimer);
+      clearInterval(recallTraceRefreshTimer);
       refreshTimer = setInterval(function () {
         if (!destroyed && selectedConversationId) {
           loadSelectedConversation().then(function () {
@@ -2450,6 +2538,15 @@
           }).catch(function () {});
         }
       }, 120000);
+      recallTraceRefreshTimer = setInterval(function () {
+        if (!destroyed && selectedConversationId && view === "palace") {
+          const trace = chatRecallTrace.get(String(selectedConversationId));
+          const timestamp = trace ? Number(trace.timestamp) || 0 : 0;
+          if (timestamp && timestamp !== renderedRecallTraceAt) {
+            render();
+          }
+        }
+      }, 1000);
     }
 
     function currentConversation() {
@@ -2560,11 +2657,61 @@
         '<section class="mp-select-hero"><div class="mp-kicker">MEMORY PALACE</div><h1 class="mp-h1">选择一个角色</h1><p class="mp-lede">进入 Ta 的七个房间，查看关系留下的痕迹、正在衰减的片段，以及会在聊天中被重新唤起的记忆。</p></section>' +
         '<div class="mp-character-grid">' + (cards || '<div class="mp-panel mp-empty"><strong>还没有可用角色</strong>请先在 Roche 中创建角色或打开一段对话。</div>') + "</div>" +
         '<div class="mp-select-config"><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>通用语义检索</strong><div>' + (embeddingConfig && embeddingConfig.enabled ? "已启用真实嵌入，所有角色共用此配置" : "当前使用本地语义近似，所有角色共用此配置") + '</div></div><button class="mp-button" data-action="open-settings">配置 embedding</button></div><div class="mp-select-config-row"><div class="mp-select-config-copy"><strong>参与聊天记忆</strong><div>' + (chatMemoryEnabled ? "已开启，相关记忆会参与 AI 回复" : "已关闭，仅保留记忆宫殿管理功能") + '</div></div><label class="mp-switch" title="切换是否参与聊天回复"><input id="mp-chat-memory-enabled" aria-label="参与聊天记忆" type="checkbox"' + (chatMemoryEnabled ? " checked" : "") + '><span aria-hidden="true"></span></label></div></div>' +
-        '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行；聊天自动注入最多 4 条记忆。</div></div>';
+        '<div class="mp-select-foot">向量检索、关联扩散、情绪启动与自动遗忘均按角色独立运行；聊天自动注入最多 8 条记忆。</div></div>';
+    }
+
+    function recallTraceStatus(trace) {
+      const status = trace && String(trace.status || "empty");
+      if (status === "hit") {
+        return { label: "本轮已注入", className: "" };
+      }
+      if (status === "warming") {
+        return { label: "后台预热中", className: "pending" };
+      }
+      if (status === "disabled") {
+        return { label: "聊天记忆已关闭", className: "disabled" };
+      }
+      if (status === "unavailable") {
+        return { label: "接口不可用", className: "empty" };
+      }
+      return { label: "本轮未命中", className: "empty" };
+    }
+
+    function renderRecallTrace(trace) {
+      const status = recallTraceStatus(trace);
+      const statusClass = status.className ? " " + status.className : "";
+      if (!trace) {
+        return '<section class="mp-section"><div class="mp-section-head"><div><h2 class="mp-section-title">最近一次聊天召回</h2><div class="mp-section-note">发送一条消息后，这里会显示插件实际交给 Roche 的记忆。</div></div><span class="mp-recall-status empty">等待记录</span></div><div class="mp-panel mp-recall-panel"><div class="mp-recall-empty">还没有聊天召回记录。首次请求会先在后台准备角色记忆索引，准备完成后的下一条消息会显示实际命中的片段。</div><div class="mp-recall-note">这块面板只读取插件自己的追踪数据，不会把分数、查询或调试信息注入 AI。</div></div></section>';
+      }
+      const entries = toArray(trace.entries);
+      const entryMarkup = entries.length
+        ? '<div class="mp-recall-list">' + entries.map(function (entry, index) {
+          const flags = [];
+          if (entry.emotionPrimed) {
+            flags.push("情绪启动");
+          }
+          if (entry.intrusive) {
+            flags.push("阁楼反刍");
+          }
+          if (entry.hop > 0) {
+            flags.push("关联第" + entry.hop + "跳");
+          } else {
+            flags.push("直接命中");
+          }
+          const openAttribute = entry.id ? ' data-open-memory="' + escapeAttr(entry.id) + '"' : "";
+          const room = entry.room ? escapeHtml(entry.room) : "记忆宫殿";
+          return '<article class="mp-recall-item"' + openAttribute + '><div class="mp-recall-rank">' + (index + 1) + '</div><div class="mp-recall-copy"><p class="mp-recall-text">' + escapeHtml(entry.text) + '</p><div class="mp-recall-meta"><span>' + room + '</span><span>' + flags.map(escapeHtml).join(" · ") + '</span></div></div><div class="mp-recall-score"><span>语义<strong>' + Math.round((Number(entry.semanticScore) || 0) * 100) + '</strong></span><span>BM25<strong>' + Math.round((Number(entry.bm25Score) || 0) * 100) + '</strong></span><span>最终<strong>' + Math.round((Number(entry.score) || 0) * 100) + '</strong></span></div></article>';
+        }).join("") + '</div>'
+        : '<div class="mp-recall-empty">' + escapeHtml(trace.reason || "本轮没有满足注入条件的记忆。") + '</div>';
+      const cacheLabel = trace.cache === "hit" ? "缓存命中" : trace.cache === "miss" ? "后台准备" : trace.cache === "disabled" ? "已关闭" : "状态未知";
+      const summary = "候选 " + (Number(trace.candidateCount) || 0) + " 条 · 注入 " + (Number(trace.injectedCount) || 0) + " 条 · 上下文 " + (Number(trace.contextChars) || 0) + " 字符 · " + cacheLabel;
+      return '<section class="mp-section"><div class="mp-section-head"><div><h2 class="mp-section-title">最近一次聊天召回</h2><div class="mp-section-note">这里只显示本角色最近一次请求交给 Roche 的插件记忆。</div></div><span class="mp-recall-status' + statusClass + '">' + status.label + '</span></div><div class="mp-panel mp-recall-panel"><div class="mp-recall-head"><div><div class="mp-recall-query"><strong>查询：</strong>' + escapeHtml(trace.query || "未读取到用户消息") + '</div><div class="mp-recall-meta"><span>' + escapeHtml(formatDate(trace.timestamp, true)) + '</span><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(trace.mode || "本地语义近似 + BM25") + '</span></div></div></div>' + entryMarkup + '<div class="mp-recall-note">' + escapeHtml(trace.reason || "记忆已按当前角色的检索流程筛选。") + ' · 这里的分数只用于验证筛选结果，AI 不会看到这些分数。</div></div></section>';
     }
 
     function renderPalacePage() {
       const character = currentConversation();
+      const recallTrace = chatRecallTrace.get(String(selectedConversationId)) || null;
+      renderedRecallTraceAt = recallTrace ? Number(recallTrace.timestamp) || 0 : 0;
       const total = memories.length;
       const wishes = roomMemories("windowSill").length;
       const due = dueMemories().length;
@@ -2595,6 +2742,7 @@
         '<div class="mp-toolbar">' + actionButton("view-all", "查看全部记忆", "grid", "primary") + actionButton("view-events", "查看事件盒", "calendar") + actionButton("view-curve", "遗忘曲线", "curve") + actionButton("view-forgetting", "遗忘中心", "moon") + "</div>" +
         '<div class="mp-toolbar">' + renderSearchInput("", "搜索记忆、标签、情绪...") + "</div>" +
         '<section class="mp-section"><div class="mp-section-head"><div><h2 class="mp-section-title">七个房间</h2><div class="mp-section-note">记忆按关系功能归位，点击房间查看完整内容。</div></div><span class="mp-section-note">自动维护已开启</span></div><div class="mp-room-grid">' + roomCards + "</div></section>" +
+        renderRecallTrace(recallTrace) +
         '<section class="mp-section"><div class="mp-insight mp-panel"><div class="mp-insight-copy"><h3>今天的宫殿状态</h3><p>系统会在聊天时运行混合搜索，再沿着关联边扩散。当前角色的记忆不会只按关键词排列，而会受保持率、情绪和角色性格共同影响。</p></div><div class="mp-insight-metrics"><div class="mp-metric"><strong>' + averageRetention + '%</strong><span>平均保持率</span></div><div class="mp-metric"><strong>' + bedroom + '</strong><span>长期羁绊</span></div><div class="mp-metric"><strong>' + attic + '</strong><span>未消化片段</span></div><div class="mp-metric"><strong>' + (embeddingConfig && embeddingConfig.enabled ? "真实" : "本地") + '</strong><span>语义检索</span></div></div></div></section>' +
         "</div>";
     }
@@ -3202,6 +3350,7 @@
     activeMountCleanup = async function () {
       destroyed = true;
       clearInterval(refreshTimer);
+      clearInterval(recallTraceRefreshTimer);
       clearTimeout(saveTimer);
       clearTimeout(toastTimer);
       await persistNow(false);
@@ -3322,30 +3471,67 @@
   function buildChatContext(ctx) {
     const api = getHostApi();
     const conversationId = conversationIdFromContext(ctx);
-    if (!api || !conversationId || !api.memory || typeof api.memory.getLongTerm !== "function") {
+    if (!api || !conversationId) {
       return null;
     }
-    const setting = chatSettingCache.get(String(conversationId));
-    if (!setting || setting.expiresAt <= Date.now()) {
-      scheduleChatWarmup(api, conversationId);
-      return null;
-    }
-    if (!setting.value) {
+    if (!api.memory || typeof api.memory.getLongTerm !== "function") {
+      rememberChatRecallTrace(api, conversationId, {
+        status: "unavailable",
+        reason: "Roche 没有提供长期记忆读取接口"
+      });
       return null;
     }
     const query = latestTextFromContext(ctx);
+    const setting = chatSettingCache.get(String(conversationId));
+    if (!setting || setting.expiresAt <= Date.now()) {
+      scheduleChatWarmup(api, conversationId);
+      rememberChatRecallTrace(api, conversationId, {
+        status: "warming",
+        reason: "缓存尚未准备好，本轮不注入；已在后台预热",
+        query: query,
+        cache: "miss"
+      });
+      return null;
+    }
+    if (!setting.value) {
+      rememberChatRecallTrace(api, conversationId, {
+        status: "disabled",
+        reason: "参与聊天记忆开关已关闭",
+        query: query,
+        cache: "disabled"
+      });
+      return null;
+    }
     if (!query) {
+      rememberChatRecallTrace(api, conversationId, {
+        status: "empty",
+        reason: "本轮没有读取到最新用户消息",
+        cache: "hit"
+      });
       return null;
     }
     const cachedBundle = cachedChatBundle(conversationId);
     if (!cachedBundle) {
       scheduleChatWarmup(api, conversationId);
+      rememberChatRecallTrace(api, conversationId, {
+        status: "warming",
+        reason: "记忆索引尚未准备好，本轮不注入；已在后台预热",
+        query: query,
+        cache: "miss"
+      });
       return null;
     }
     // The provider is deliberately synchronous: only the warm in-memory index can enter the chat request.
     const bundle = cachedBundle;
     const memories = bundle && Array.isArray(bundle.memories) ? bundle.memories.slice() : [];
     if (!memories.length) {
+      rememberChatRecallTrace(api, conversationId, {
+        status: "empty",
+        reason: "缓存中没有可用的长期记忆",
+        query: query,
+        cache: "hit",
+        candidateCount: 0
+      });
       return null;
     }
     const personaText = contextPersonaText(ctx);
@@ -3370,8 +3556,23 @@
       tendency: ruminationTendency(personaText)
     });
     entries = dedupeEntries(entries).slice(0, CHAT_CONTEXT_LIMIT);
+    const context = formatMemoryContext(entries, emotion, personality, "本地语义近似", { compact: true });
+    const injectedCount = context.split("\n").filter(function (line) {
+      return line.indexOf("- ") === 0;
+    }).length;
+    rememberChatRecallTrace(api, conversationId, {
+      status: injectedCount ? "hit" : "empty",
+      reason: injectedCount ? "contextProvider 已生成并交给 Roche" : "候选记忆未达到注入条件",
+      query: query,
+      cache: "hit",
+      mode: "本地语义近似 + BM25",
+      candidateCount: memories.length,
+      injectedCount: injectedCount,
+      contextChars: context.length,
+      entries: entries.slice(0, injectedCount)
+    });
     scheduleAutomaticRecall(api, conversationId, entries);
-    return formatMemoryContext(entries, emotion, personality, "本地语义近似", { compact: true });
+    return context;
   }
 
   function exposeTestSurface() {
@@ -3396,6 +3597,9 @@
       buildEventGroups: buildEventGroups,
       applyMemoryMaintenance: applyMemoryMaintenance,
       buildChatContext: buildChatContext,
+      getChatRecallTrace: function (conversationId) {
+        return chatRecallTrace.get(String(conversationId || "")) || null;
+      },
       memoryTextSignature: memoryTextSignature,
       dedupeEntries: dedupeEntries,
       resolveEmbeddingModelsEndpoint: resolveEmbeddingModelsEndpoint,
